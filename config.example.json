@@ -1,0 +1,11 @@
+{
+  "exclude_dirs": [
+    "tmp",
+    "logs"
+  ],
+  "exclude_globs": [
+    "**/*.min.js",
+    "**/fixtures/**",
+    "**/snapshots/**"
+  ]
+}

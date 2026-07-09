@@ -1,0 +1,22 @@
+{
+  "scan": {
+    "exclude_dirs": ["tmp", "logs"],
+    "exclude_globs": ["**/*.min.js", "**/fixtures/**"],
+    "timeout_seconds": 90,
+    "workers": null
+  },
+  "ai": {
+    "enabled": false,
+    "model": "gpt-5.4-mini"
+  },
+  "web": {
+    "base_url": "http://localhost:3000",
+    "routes": ["/", "/login", "/dashboard"],
+    "discover_routes": false,
+    "clicks": [],
+    "viewport": "desktop"
+  },
+  "quality_gate": {
+    "fail_on": ["critical", "high"]
+  }
+}

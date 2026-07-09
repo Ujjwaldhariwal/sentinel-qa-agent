@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sentinel-qa-agent"
+version = "0.3.0"
+description = "Local AI-assisted QA and security agent with scanner, web QA, history, and service modes."
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Sentinel QA Agent" }]
+dependencies = []
+
+[project.optional-dependencies]
+scanner = ["bandit", "pip-audit", "semgrep"]
+
+[project.scripts]
+sentinel-qa = "sentinel_qa:main"
+sentinel-agent-server = "sentinel_agent_server:main"
+sentinel-daemon = "sentinel_daemon:main"
+sentinel-web-qa = "web_qa:main"
+
+[tool.setuptools]
+py-modules = [
+  "agent_state",
+  "agent_log",
+  "qa_ai_agent",
+  "sentinel_agent_server",
+  "sentinel_daemon",
+  "sentinel_policy",
+  "sentinel_qa",
+  "settings",
+  "web_qa"
+]

@@ -1,0 +1,5 @@
+# Optional. The core scanner uses only Python standard library.
+# Install these for stronger local scan coverage:
+bandit
+pip-audit
+semgrep

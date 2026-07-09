@@ -1,0 +1,12 @@
+{
+  "host": "127.0.0.1",
+  "port": 8765,
+  "require_token": true,
+  "auth_token": "replace-with-generated-token",
+  "default_output_dir": "latest-report",
+  "default_web_output_dir": "latest-web-qa",
+  "max_workers": null,
+  "scan_timeout_seconds": 90,
+  "ai_review": false,
+  "model": "gpt-5.4-mini"
+}

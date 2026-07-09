@@ -24,6 +24,9 @@ sentinel-qa-report/
 sentinel-web-qa-report/
 sentinel-qa-runs/
 latest-report/
+latest-web-qa/
+reports/
+state/
 *.sqlite3
 *.jsonl
 screenshots/

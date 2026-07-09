@@ -170,24 +170,27 @@ def update_job(
     finished: bool = False,
     db_path: Path = DEFAULT_DB,
 ) -> None:
-    updates = ["status = ?"]
-    values: list[Any] = [status]
     now = time.time()
-    if started:
-        updates.append("started_at = ?")
-        values.append(now)
-    if finished:
-        updates.append("finished_at = ?")
-        values.append(now)
-    if result is not None:
-        updates.append("result = ?")
-        values.append(json.dumps(result))
-    if error is not None:
-        updates.append("error = ?")
-        values.append(error)
-    values.append(job_id)
     with connect(db_path) as connection:
-        connection.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", values)
+        connection.execute(
+            """
+            UPDATE jobs
+            SET status = ?,
+                started_at = COALESCE(?, started_at),
+                finished_at = COALESCE(?, finished_at),
+                result = COALESCE(?, result),
+                error = COALESCE(?, error)
+            WHERE id = ?
+            """,
+            (
+                status,
+                now if started else None,
+                now if finished else None,
+                json.dumps(result) if result is not None else None,
+                error,
+                job_id,
+            ),
+        )
         connection.commit()
 
 

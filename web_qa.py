@@ -298,9 +298,9 @@ def build_playwright_script() -> str:
             console_messages: consoleMessages.slice(0, 50),
             click_results: clickResults,
           };
-          console.log(JSON.stringify(result));
+          console.log(JSON.stringify(result)); // sentinel-qa: ignore
         } catch (error) {
-          console.log(JSON.stringify({
+          console.log(JSON.stringify({ // sentinel-qa: ignore
             ok: false,
             status: 'failed',
             url: input.url,

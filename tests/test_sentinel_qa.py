@@ -48,6 +48,54 @@ class SentinelQaTests(unittest.TestCase):
 
         self.assertTrue(any(finding.category == "secrets" for finding in findings))
 
+    def test_scanner_rule_definitions_are_not_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "rules.py"
+            source.write_text(
+                '("high", "Potential XSS sink", re.compile(r"innerHTML"))\n',
+                encoding="utf-8",
+            )
+
+            findings = sentinel_qa.scan_file(project, source, project)
+
+        self.assertEqual(findings, [])
+
+    def test_safe_subprocess_run_is_not_shell_interpolation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "tool.py"
+            source.write_text(
+                'completed = subprocess.run(["git", "status"], check=False)\n',
+                encoding="utf-8",
+            )
+
+            findings = sentinel_qa.scan_file(project, source, project)
+
+        self.assertFalse(any(finding.title == "Shell execution with interpolation" for finding in findings))
+
+    def test_report_folders_are_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "package.json").write_text("{}", encoding="utf-8")
+            reports = project / "reports"
+            reports.mkdir()
+            (reports / "report.md").write_text("innerHTML\n", encoding="utf-8")  # sentinel-qa: ignore
+
+            result = sentinel_qa.run_scan(project, output_dir=project / "out", workers=1)
+
+        self.assertFalse(any(finding.path.startswith("reports/") for finding in result["findings"]))
+
+    def test_inline_ignore_marker_suppresses_known_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "fixture.py"
+            source.write_text('sample = "innerHTML"  # sentinel-qa: ignore\n', encoding="utf-8")
+
+            findings = sentinel_qa.scan_file(project, source, project)
+
+        self.assertEqual(findings, [])
+
     def test_markdown_report_contains_summary(self):
         report = sentinel_qa.render_markdown(
             Path("/tmp/example"),

@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import mimetypes
 import socketserver
 import time
 import uuid
@@ -30,6 +31,7 @@ import web_qa
 APP_DIR = Path(__file__).resolve().parent
 EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 SERVICE_CONFIG = settings.load_config()
+SAFE_ARTIFACT_SUFFIXES = {".json", ".md", ".txt", ".log", ".png", ".jpg", ".jpeg", ".webp"}
 
 
 class FastLocalHTTPServer(ThreadingHTTPServer):
@@ -57,8 +59,22 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/":
             self.send_file(APP_DIR / "ui" / "index.html", "text/html; charset=utf-8")
+        elif parsed.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
         elif parsed.path == "/health":
             self.send_json({"ok": True, "service": "sentinel-qa-agent"})
+        elif parsed.path == "/browse":
+            try:
+                query = parse_qs(parsed.query)
+                current = (query.get("path") or [""])[0]
+                self.send_json({"ok": True, **browse_directory(current)})
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, status=400)
+        elif parsed.path == "/artifact":
+            query = parse_qs(parsed.query)
+            artifact = (query.get("path") or [""])[0]
+            self.send_artifact(artifact)
         elif parsed.path == "/jobs":
             self.send_json({"ok": True, "jobs": agent_state.list_jobs()})
         elif parsed.path == "/job":
@@ -190,6 +206,18 @@ class AgentHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def send_artifact(self, raw_path: str) -> None:
+        try:
+            path = safe_local_path(raw_path)
+            if not path.is_file():
+                raise FileNotFoundError(f"Artifact does not exist: {path}")
+            if path.suffix.lower() not in SAFE_ARTIFACT_SUFFIXES:
+                raise ValueError("Only report and image artifacts can be opened.")
+            content_type = mimetypes.guess_type(path.name)[0] or "text/plain"
+            self.send_file(path, content_type)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=404)
+
     def send_json(self, payload: dict, status: int = 200) -> None:
         data = json.dumps(payload, indent=2).encode("utf-8")
         self.send_response(status)
@@ -219,6 +247,68 @@ def safe_payload(payload: dict) -> dict:
     return clean
 
 
+def safe_local_path(raw_path: str) -> Path:
+    if not raw_path:
+        raise ValueError("Path is required.")
+    path = Path(raw_path).expanduser().resolve()
+    home = Path.home().resolve()
+    if path != home and home not in path.parents:
+        raise ValueError("Path must be inside your home folder.")
+    return path
+
+
+def browse_roots() -> list[Path]:
+    candidates = [
+        Path.home(),
+        Path.home() / "Desktop",
+        Path.home() / "Documents",
+        Path.home() / "Downloads",
+        APP_DIR,
+    ]
+    seen: set[Path] = set()
+    roots: list[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.exists() and resolved.is_dir() and resolved not in seen:
+            seen.add(resolved)
+            roots.append(resolved)
+    return roots
+
+
+def browse_directory(raw_path: str = "") -> dict:
+    if raw_path:
+        path = safe_local_path(raw_path)
+    else:
+        path = Path.home().resolve()
+    if not path.exists() or not path.is_dir():
+        raise NotADirectoryError(f"Folder does not exist: {path}")
+    entries = []
+    for child in path.iterdir():
+        if child.name.startswith(".") or not child.is_dir():
+            continue
+        try:
+            resolved = child.resolve()
+        except OSError:
+            continue
+        entries.append({"name": child.name, "path": str(resolved)})
+    entries.sort(key=lambda item: item["name"].lower())
+    parent = path.parent if path != Path.home().resolve() else None
+    return {
+        "path": str(path),
+        "parent": str(parent) if parent and parent.exists() else None,
+        "roots": [{"name": root.name or str(root), "path": str(root)} for root in browse_roots()],
+        "entries": entries[:300],
+    }
+
+
+def default_scan_output_dir(root: Path) -> Path:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return root / "reports" / f"sentinel-{stamp}"
+
+
 def run_scan_job(job_id: str, body: dict) -> None:
     agent_state.update_job(job_id, "running", started=True)
     agent_log.log_event("job_started", job_id=job_id)
@@ -234,9 +324,11 @@ def run_scan_job(job_id: str, body: dict) -> None:
 
 def run_scan_request(body: dict) -> dict:
     root = Path(body["root"]).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise FileNotFoundError(f"Project folder does not exist: {root}")
     policy_path = Path(body["policy_path"]).expanduser().resolve() if body.get("policy_path") else None
     policy = sentinel_policy.load_policy(root=root, path=policy_path)
-    output_dir = Path(body.get("output_dir") or APP_DIR / SERVICE_CONFIG.get("default_output_dir", "latest-report")).expanduser().resolve()
+    output_dir = Path(body["output_dir"]).expanduser().resolve() if body.get("output_dir") else default_scan_output_dir(root).resolve()
     model = body.get("model") or policy["ai"].get("model") or SERVICE_CONFIG.get("model") or qa_ai_agent.DEFAULT_MODEL
     include_ai = bool(body.get("ai_review", policy["ai"].get("enabled") if policy["ai"].get("enabled") is not None else SERVICE_CONFIG.get("ai_review", False)))
     web_url = body.get("web_url") or policy["web"].get("base_url")
@@ -257,6 +349,7 @@ def run_scan_request(body: dict) -> dict:
         "report_json": str(result["json_path"]),
         "finding_count": len(result["findings"]),
         "project_count": len(result["projects"]),
+        "severity_counts": agent_state.severity_counts(result["findings"]),
     }
     if include_ai:
         try:

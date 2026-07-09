@@ -6,181 +6,515 @@
   <title>Sentinel QA Agent</title>
   <style>
     :root {
-      color-scheme: light dark;
+      color-scheme: light;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f6f7f9;
-      color: #15171a;
+      background: #f5f7fa;
+      color: #121417;
+      --surface: #ffffff;
+      --surface-soft: #f8fafc;
+      --border: #d9e0ea;
+      --muted: #657184;
+      --text: #121417;
+      --blue: #2563eb;
+      --blue-dark: #1d4ed8;
+      --red: #dc2626;
+      --amber: #d97706;
+      --green: #16a34a;
+      --shadow: 0 18px 48px rgba(24, 31, 43, 0.1);
     }
+    * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
+      background: var(--bg, #f5f7fa);
+      color: var(--text);
     }
-    main {
-      width: min(540px, calc(100vw - 32px));
-      border: 1px solid #d8dde5;
+    button, input, select {
+      font: inherit;
+    }
+    button {
+      border: 0;
       border-radius: 8px;
-      background: #ffffff;
-      box-shadow: 0 18px 50px rgba(20, 30, 45, 0.12);
-      padding: 18px;
+      min-height: 40px;
+      padding: 0 14px;
+      font-weight: 700;
+      cursor: pointer;
+      color: #fff;
+      background: var(--blue);
     }
-    h1 {
-      font-size: 18px;
-      margin: 0 0 14px;
-      font-weight: 650;
+    button:hover { background: var(--blue-dark); }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.62;
     }
-    h2 {
-      font-size: 13px;
-      margin: 18px 0 8px;
-      color: #394150;
+    button.secondary {
+      color: #172033;
+      background: #eef2f7;
+      border: 1px solid var(--border);
     }
-    label {
+    button.secondary:hover { background: #e3eaf3; }
+    button.ghost {
+      color: #263244;
+      background: transparent;
+      border: 1px solid var(--border);
+    }
+    button.ghost:hover { background: #f3f6fa; }
+    input, select {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 11px;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+    }
+    input:focus, select:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+    }
+    .shell {
+      width: min(1120px, calc(100vw - 28px));
+      margin: 22px auto;
       display: grid;
-      gap: 7px;
-      font-size: 13px;
-      color: #394150;
-      margin: 12px 0;
+      gap: 14px;
     }
-    input {
-      height: 38px;
-      border: 1px solid #c8ced8;
-      border-radius: 6px;
-      padding: 0 10px;
-      font: inherit;
-      background: #fff;
-      color: #15171a;
-    }
-    select {
-      height: 38px;
-      border: 1px solid #c8ced8;
-      border-radius: 6px;
-      padding: 0 10px;
-      font: inherit;
-      background: #fff;
-      color: #15171a;
-    }
-    .row {
+    .topbar {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      margin-top: 16px;
+      gap: 12px;
+      min-height: 52px;
     }
-    .check {
+    .brand {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 16px;
+    }
+    .mark {
+      width: 31px;
+      height: 31px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: #111827;
+    }
+    .status-pill {
+      min-height: 30px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(310px, 0.65fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+    }
+    .panel-head {
+      padding: 16px 16px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    h1, h2, h3, p {
+      margin: 0;
+    }
+    h1 {
+      font-size: clamp(24px, 4vw, 36px);
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+    h2 {
+      font-size: 14px;
+      line-height: 1.2;
+    }
+    h3 {
       font-size: 13px;
+      line-height: 1.2;
+    }
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .primary {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+    .field label {
+      color: #394150;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .path-control {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 9px;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 2px;
+    }
+    .run-button {
+      min-width: 170px;
+      min-height: 46px;
+      font-size: 15px;
+    }
+    .inline-checks {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: #394150;
+      font-size: 13px;
+      font-weight: 700;
     }
     .check input {
-      width: 16px;
-      height: 16px;
+      width: 17px;
+      min-height: 17px;
+      accent-color: var(--blue);
     }
-    button {
-      height: 38px;
-      border: 0;
-      border-radius: 6px;
-      padding: 0 14px;
-      background: #1d4ed8;
-      color: white;
-      font-weight: 650;
+    details {
+      border-top: 1px solid var(--border);
+      padding-top: 12px;
+    }
+    summary {
       cursor: pointer;
+      color: #394150;
+      font-size: 13px;
+      font-weight: 800;
     }
-    button.secondary {
-      background: #e8edf5;
+    .advanced {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding-top: 12px;
+    }
+    .result-panel {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+    .severity-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .severity {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      display: grid;
+      gap: 2px;
+      background: var(--surface-soft);
+    }
+    .severity strong {
+      font-size: 22px;
+      line-height: 1;
+    }
+    .severity span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .critical strong, .high strong { color: var(--red); }
+    .medium strong { color: var(--amber); }
+    .low strong { color: var(--green); }
+    .report-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .report-links a {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      padding: 0 10px;
       color: #172033;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      text-decoration: none;
     }
-    pre {
-      min-height: 86px;
-      max-height: 220px;
+    .log {
+      min-height: 72px;
+      max-height: 180px;
       overflow: auto;
-      border-radius: 6px;
+      border-radius: 8px;
       background: #101418;
       color: #d8f3dc;
       padding: 12px;
       white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 12px;
+      line-height: 1.45;
     }
-    ul {
-      list-style: none;
-      padding: 0;
-      margin: 0;
+    .runs {
+      padding: 12px 16px 16px;
       display: grid;
+      gap: 9px;
+    }
+    .run-row {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      display: grid;
+      gap: 7px;
+      background: #fff;
+    }
+    .run-title {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .chip {
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #f0f4f8;
+      color: #394150;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .chip.high { color: #991b1b; background: #fee2e2; }
+    .chip.medium { color: #92400e; background: #fef3c7; }
+    .chip.low { color: #166534; background: #dcfce7; }
+    .empty {
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+      background: var(--surface-soft);
+    }
+    dialog {
+      width: min(720px, calc(100vw - 24px));
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.25);
+    }
+    dialog::backdrop {
+      background: rgba(15, 23, 42, 0.34);
+    }
+    .modal-head {
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .modal-body {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+    .crumb {
+      padding: 9px 10px;
+      border-radius: 8px;
+      background: var(--surface-soft);
+      color: #394150;
+      font-size: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      word-break: break-all;
+    }
+    .folder-list {
+      display: grid;
+      gap: 7px;
+      max-height: 360px;
+      overflow: auto;
+    }
+    .folder-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 40px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #fff;
+      color: #172033;
+      text-align: left;
+      font-weight: 700;
+    }
+    .folder-row:hover { background: #f7f9fc; }
+    .modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
       gap: 8px;
     }
-    li {
-      border: 1px solid #d8dde5;
-      border-radius: 6px;
-      padding: 9px;
-      font-size: 12px;
-      display: grid;
-      gap: 3px;
+    .roots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
     }
-    .muted {
-      color: #647083;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root { background: #101318; color: #f3f5f7; }
-      main { background: #171b22; border-color: #303846; }
-      label { color: #c5cbd5; }
-      input { background: #101318; color: #f3f5f7; border-color: #404858; }
-      select { background: #101318; color: #f3f5f7; border-color: #404858; }
-      h2 { color: #c5cbd5; }
-      button.secondary { background: #2a3240; color: #f3f5f7; }
-      li { border-color: #303846; }
-      .muted { color: #9aa4b4; }
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+      .advanced { grid-template-columns: 1fr; }
+      .severity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .path-control { grid-template-columns: 1fr; }
+      .topbar { align-items: flex-start; flex-direction: column; }
     }
   </style>
 </head>
 <body>
-  <main>
-    <h1>Sentinel QA Agent</h1>
-    <label>
-      Project folder
-      <input id="root" placeholder="/Users/you/code">
-    </label>
-    <label>
-      Output folder
-      <input id="output" placeholder="./latest-report">
-    </label>
-    <label>
-      Token
-      <input id="token" placeholder="optional service token">
-    </label>
-    <label>
-      Web app URL
-      <input id="webUrl" placeholder="http://localhost:3000">
-    </label>
-    <label>
-      Routes
-      <input id="webRoutes" placeholder="/,/login,/dashboard">
-    </label>
-    <label>
-      Web viewport
-      <select id="webViewport">
-        <option value="desktop">Desktop</option>
-        <option value="mobile">Mobile</option>
-      </select>
-    </label>
-    <div class="row">
-      <label class="check">
-        <input id="ai" type="checkbox" checked>
-        AI review
-      </label>
-      <label class="check">
-        <input id="discoverRoutes" type="checkbox">
-        Discover routes
-      </label>
-      <div>
-        <button class="secondary" id="refresh">History</button>
-        <button id="scan">Run QA</button>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 3l7 3v5c0 4.5-2.8 8.5-7 10-4.2-1.5-7-5.5-7-10V6l7-3z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M9 12l2 2 4-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span>Sentinel QA Agent</span>
+      </div>
+      <div class="status-pill"><span class="dot"></span><span id="serviceState">Local service ready</span></div>
+    </header>
+
+    <div class="grid">
+      <section class="panel primary" aria-labelledby="scanTitle">
+        <div>
+          <h1 id="scanTitle">Test a project</h1>
+          <p class="muted">Pick a folder, run QA, open the report.</p>
+        </div>
+
+        <div class="field">
+          <label for="root">Project folder</label>
+          <div class="path-control">
+            <input id="root" placeholder="/Users/you/Desktop/my-app" autocomplete="off">
+            <button class="secondary" id="browseRoot" type="button">Browse</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="output">Output folder</label>
+          <div class="path-control">
+            <input id="output" placeholder="Auto: project/reports/sentinel-date" autocomplete="off">
+            <button class="secondary" id="browseOutput" type="button">Browse</button>
+          </div>
+        </div>
+
+        <div class="actions">
+          <div class="inline-checks">
+            <label class="check"><input id="ai" type="checkbox"> AI review</label>
+            <label class="check"><input id="discoverRoutes" type="checkbox"> Discover routes</label>
+          </div>
+          <button class="run-button" id="scan" type="button">Run QA</button>
+        </div>
+
+        <details>
+          <summary>Advanced</summary>
+          <div class="advanced">
+            <div class="field">
+              <label for="token">Token</label>
+              <input id="token" placeholder="optional service token" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="webUrl">Web app URL</label>
+              <input id="webUrl" placeholder="http://localhost:3000" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="webRoutes">Routes</label>
+              <input id="webRoutes" placeholder="/,/login,/dashboard" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="webViewport">Web viewport</label>
+              <select id="webViewport">
+                <option value="desktop">Desktop</option>
+                <option value="mobile">Mobile</option>
+              </select>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <aside class="panel" aria-labelledby="historyTitle">
+        <div class="panel-head">
+          <h2 id="historyTitle">Recent scans</h2>
+          <button class="ghost" id="refresh" type="button">Refresh</button>
+        </div>
+        <div class="runs" id="runs"></div>
+      </aside>
+    </div>
+
+    <section class="panel result-panel" aria-labelledby="resultTitle">
+      <div class="panel-head" style="padding:0">
+        <h2 id="resultTitle">Latest result</h2>
+        <span class="muted" id="jobState">Idle</span>
+      </div>
+      <div class="severity-grid" id="severityGrid"></div>
+      <div class="report-links" id="reportLinks"></div>
+      <pre class="log" id="status">Ready.</pre>
+    </section>
+  </div>
+
+  <dialog id="folderDialog">
+    <div class="modal-head">
+      <h2 id="dialogTitle">Choose folder</h2>
+      <button class="ghost" id="closeDialog" type="button">Close</button>
+    </div>
+    <div class="modal-body">
+      <div class="roots" id="roots"></div>
+      <div class="crumb" id="currentPath"></div>
+      <div class="folder-list" id="folderList"></div>
+      <div class="modal-actions">
+        <button class="ghost" id="upFolder" type="button">Up</button>
+        <button id="selectFolder" type="button">Use this folder</button>
       </div>
     </div>
-    <pre id="status">Idle</pre>
-    <h2>Recent Runs</h2>
-    <ul id="runs"></ul>
-  </main>
+  </dialog>
+
   <script>
     const root = document.querySelector("#root");
     const output = document.querySelector("#output");
@@ -194,8 +528,49 @@
     const refresh = document.querySelector("#refresh");
     const status = document.querySelector("#status");
     const runs = document.querySelector("#runs");
+    const jobState = document.querySelector("#jobState");
+    const serviceState = document.querySelector("#serviceState");
+    const severityGrid = document.querySelector("#severityGrid");
+    const reportLinks = document.querySelector("#reportLinks");
+    const folderDialog = document.querySelector("#folderDialog");
+    const dialogTitle = document.querySelector("#dialogTitle");
+    const closeDialog = document.querySelector("#closeDialog");
+    const currentPath = document.querySelector("#currentPath");
+    const roots = document.querySelector("#roots");
+    const folderList = document.querySelector("#folderList");
+    const upFolder = document.querySelector("#upFolder");
+    const selectFolder = document.querySelector("#selectFolder");
+    const browseRoot = document.querySelector("#browseRoot");
+    const browseOutput = document.querySelector("#browseOutput");
+
+    let browseTarget = "root";
+    let browseState = { path: "", parent: null };
+    let pollTimer = null;
 
     token.value = localStorage.getItem("sentinelToken") || "";
+    root.value = localStorage.getItem("sentinelRoot") || "";
+    output.value = localStorage.getItem("sentinelOutput") || "";
+
+    function node(tag, attrs = {}, children = []) {
+      const element = document.createElement(tag);
+      for (const [key, value] of Object.entries(attrs)) {
+        if (key === "class") element.className = value;
+        else if (key === "text") element.textContent = value;
+        else if (key === "href") element.href = value;
+        else if (key === "target") element.target = value;
+        else if (key === "rel") element.rel = value;
+        else if (key.startsWith("on")) element.addEventListener(key.slice(2), value);
+        else element.setAttribute(key, value);
+      }
+      for (const child of children) element.append(child);
+      return element;
+    }
+
+    function authHeaders() {
+      if (!token.value.trim()) return {};
+      localStorage.setItem("sentinelToken", token.value.trim());
+      return { "Authorization": `Bearer ${token.value.trim()}` };
+    }
 
     function routeList() {
       return webRoutes.value
@@ -204,67 +579,194 @@
         .filter(Boolean);
     }
 
+    function artifactUrl(path) {
+      return `/artifact?path=${encodeURIComponent(path)}`;
+    }
+
+    function setStatus(message, payload) {
+      status.textContent = payload ? `${message}\n${JSON.stringify(payload, null, 2)}` : message;
+    }
+
+    function renderSeverity(counts = {}) {
+      const items = [
+        ["critical", "Critical"],
+        ["high", "High"],
+        ["medium", "Medium"],
+        ["low", "Low"],
+      ];
+      severityGrid.replaceChildren(...items.map(([key, label]) =>
+        node("div", { class: `severity ${key}` }, [
+          node("strong", { text: String(counts[key] || 0) }),
+          node("span", { text: label }),
+        ])
+      ));
+    }
+
+    function renderLinks(result = {}) {
+      const links = [];
+      if (result.report_md) links.push(node("a", { href: artifactUrl(result.report_md), target: "_blank", rel: "noreferrer", text: "Markdown report" }));
+      if (result.report_json) links.push(node("a", { href: artifactUrl(result.report_json), target: "_blank", rel: "noreferrer", text: "JSON report" }));
+      if (result.ai_review_md) links.push(node("a", { href: artifactUrl(result.ai_review_md), target: "_blank", rel: "noreferrer", text: "AI review" }));
+      if (result.web_qa_md) links.push(node("a", { href: artifactUrl(result.web_qa_md), target: "_blank", rel: "noreferrer", text: "Web QA report" }));
+      reportLinks.replaceChildren(...links);
+    }
+
     async function loadRuns() {
       const response = await fetch("/runs?limit=8", { headers: authHeaders() });
       const data = await response.json();
-      runs.innerHTML = "";
-      for (const run of data.runs || []) {
-        const item = document.createElement("li");
-        const date = new Date(run.finished_at * 1000).toLocaleString();
-        item.innerHTML = `
-          <strong>#${run.id} ${run.status}</strong>
-          <span>${run.finding_count} finding(s), ${run.project_count} project(s)</span>
-          <span class="muted">${date}</span>
-          <span class="muted">${run.report_md}</span>
-        `;
-        runs.appendChild(item);
-      }
+      if (!data.ok) throw new Error(data.error || "Could not load runs.");
+      const rows = (data.runs || []).map(run => {
+        const date = run.finished_at ? new Date(run.finished_at * 1000).toLocaleString() : "Pending";
+        const counts = run.severity_counts || {};
+        const chips = node("div", { class: "chips" }, [
+          node("span", { class: "chip high", text: `H ${counts.high || 0}` }),
+          node("span", { class: "chip medium", text: `M ${counts.medium || 0}` }),
+          node("span", { class: "chip low", text: `L ${counts.low || 0}` }),
+          node("span", { class: "chip", text: `${run.finding_count || 0} total` }),
+        ]);
+        const report = run.report_md
+          ? node("a", { href: artifactUrl(run.report_md), target: "_blank", rel: "noreferrer", text: "Open report" })
+          : node("span", { class: "muted", text: "No report" });
+        return node("article", { class: "run-row" }, [
+          node("div", { class: "run-title" }, [
+            node("span", { text: `#${run.id} ${run.status}` }),
+            node("span", { class: "muted", text: date }),
+          ]),
+          chips,
+          node("div", { class: "muted", text: run.root || "" }),
+          report,
+        ]);
+      });
+      runs.replaceChildren(...(rows.length ? rows : [node("div", { class: "empty", text: "No scans yet." })]));
     }
 
-    function authHeaders() {
-      if (!token.value) return {};
-      localStorage.setItem("sentinelToken", token.value);
-      return { "Authorization": `Bearer ${token.value}` };
+    async function browse(path = "") {
+      const response = await fetch(`/browse?path=${encodeURIComponent(path)}`, { headers: authHeaders() });
+      const data = await response.json();
+      if (!data.ok) throw new Error(data.error || "Could not browse folders.");
+      browseState = { path: data.path, parent: data.parent };
+      currentPath.textContent = data.path;
+      upFolder.disabled = !data.parent;
+      roots.replaceChildren(...(data.roots || []).map(item =>
+        node("button", { class: "ghost", type: "button", text: item.name, onclick: () => browse(item.path) })
+      ));
+      const rows = (data.entries || []).map(item =>
+        node("button", { class: "folder-row", type: "button", onclick: () => browse(item.path) }, [
+          node("span", { text: item.name }),
+          node("span", { class: "muted", text: "Open" }),
+        ])
+      );
+      folderList.replaceChildren(...(rows.length ? rows : [node("div", { class: "empty", text: "No folders here." })]));
+    }
+
+    async function openBrowse(target) {
+      browseTarget = target;
+      dialogTitle.textContent = target === "root" ? "Choose project folder" : "Choose output folder";
+      const current = target === "root" ? root.value : output.value;
+      await browse(current.trim());
+      folderDialog.showModal();
+    }
+
+    async function pollJob(jobId) {
+      const response = await fetch(`/job?id=${encodeURIComponent(jobId)}`, { headers: authHeaders() });
+      const data = await response.json();
+      if (!data.ok || !data.job) throw new Error(data.error || "Job not found.");
+      const job = data.job;
+      jobState.textContent = job.status;
+      setStatus(`Job ${job.status}`, job.result || job.error || { id: job.id });
+      if (job.status === "completed" || job.status === "failed") {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        scan.disabled = false;
+        if (job.result) {
+          renderSeverity(job.result.severity_counts || {});
+          renderLinks(job.result);
+        }
+        await loadRuns();
+      }
     }
 
     scan.addEventListener("click", async () => {
-      status.textContent = "Scanning...";
+      if (!root.value.trim() && !webUrl.value.trim()) {
+        setStatus("Choose a project folder first.");
+        return;
+      }
+      localStorage.setItem("sentinelRoot", root.value.trim());
+      localStorage.setItem("sentinelOutput", output.value.trim());
+      clearInterval(pollTimer);
+      renderLinks();
       scan.disabled = true;
+      jobState.textContent = "Queued";
+      setStatus("Starting scan...");
       try {
-        const webOnly = !root.value && webUrl.value;
-        const response = await fetch(webOnly ? "/web-qa" : "/scan", {
+        const webOnly = !root.value.trim() && webUrl.value.trim();
+        if (webOnly) {
+          const response = await fetch("/web-qa", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({
+              url: webUrl.value.trim(),
+              output_dir: output.value.trim() || undefined,
+              viewport: webViewport.value,
+              routes: routeList(),
+              root: root.value.trim() || undefined,
+              discover_routes: discoverRoutes.checked
+            })
+          });
+          const result = await response.json();
+          jobState.textContent = result.status || "Finished";
+          setStatus("Web QA finished.", result);
+          renderLinks(result);
+          scan.disabled = false;
+          return;
+        }
+        const response = await fetch("/scan-async", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify(webOnly
-            ? {
-                url: webUrl.value,
-                output_dir: output.value || undefined,
-                viewport: webViewport.value,
-                routes: routeList(),
-                root: root.value || undefined,
-                discover_routes: discoverRoutes.checked
-              }
-            : {
-                root: root.value,
-                output_dir: output.value || undefined,
-                ai_review: ai.checked,
-                web_url: webUrl.value || undefined,
-                web_routes: routeList(),
-                web_discover_routes: discoverRoutes.checked,
-                web_viewport: webViewport.value
-              })
+          body: JSON.stringify({
+            root: root.value.trim(),
+            output_dir: output.value.trim() || undefined,
+            ai_review: ai.checked,
+            web_url: webUrl.value.trim() || undefined,
+            web_routes: routeList(),
+            web_discover_routes: discoverRoutes.checked,
+            web_viewport: webViewport.value
+          })
         });
-        status.textContent = JSON.stringify(await response.json(), null, 2);
-        await loadRuns();
+        const data = await response.json();
+        if (!data.ok) throw new Error(data.error || "Scan could not start.");
+        setStatus("Scan queued.", data);
+        pollTimer = setInterval(() => pollJob(data.job_id).catch(error => {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          scan.disabled = false;
+          setStatus(String(error));
+        }), 1200);
+        await pollJob(data.job_id);
       } catch (error) {
-        status.textContent = String(error);
-      } finally {
         scan.disabled = false;
+        jobState.textContent = "Error";
+        setStatus(String(error));
       }
     });
 
-    refresh.addEventListener("click", loadRuns);
+    refresh.addEventListener("click", () => loadRuns().catch(error => setStatus(String(error))));
+    browseRoot.addEventListener("click", () => openBrowse("root").catch(error => setStatus(String(error))));
+    browseOutput.addEventListener("click", () => openBrowse("output").catch(error => setStatus(String(error))));
+    closeDialog.addEventListener("click", () => folderDialog.close());
+    upFolder.addEventListener("click", () => browse(browseState.parent).catch(error => setStatus(String(error))));
+    selectFolder.addEventListener("click", () => {
+      if (browseTarget === "root") root.value = browseState.path;
+      else output.value = browseState.path;
+      folderDialog.close();
+    });
+
+    renderSeverity();
     loadRuns().catch(() => {});
+    fetch("/health")
+      .then(response => response.json())
+      .then(data => { serviceState.textContent = data.ok ? "Local service ready" : "Service issue"; })
+      .catch(() => { serviceState.textContent = "Service offline"; });
   </script>
 </body>
 </html>

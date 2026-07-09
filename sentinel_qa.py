@@ -41,6 +41,13 @@ DEFAULT_EXCLUDES = {
     ".terraform",
     ".cache",
     "coverage",
+    "htmlcov",
+    "reports",
+    "latest-report",
+    "latest-web-qa",
+    "sentinel-qa-report",
+    "sentinel-web-qa-report",
+    "state",
 }
 
 TEXT_EXTENSIONS = {
@@ -94,6 +101,7 @@ class Finding:
 
 
 SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+IGNORE_MARKER = "sentinel-qa: ignore"
 
 
 SECRET_PATTERNS = [
@@ -108,10 +116,10 @@ SECRET_PATTERNS = [
 BUG_PATTERNS = [
     ("medium", "Debug mode enabled", re.compile(r"(?i)\b(debug|dev_mode)\b\s*[:=]\s*(true|1|yes)")),
     ("medium", "Dangerous eval usage", re.compile(r"\beval\s*\(")),
-    ("medium", "Shell execution with interpolation", re.compile(r"\b(os\.system|subprocess\.(Popen|run|call)|exec)\s*\(")),
-    ("medium", "SQL string construction", re.compile(r"(?i)(select|insert|update|delete).*(\+|%|\{.*\})")),
+    ("medium", "Shell execution with interpolation", re.compile(r"\b(os\.system|exec)\s*\(|subprocess\.(Popen|run|call)\s*\(.*shell\s*=\s*True")),
+    ("medium", "SQL string construction", re.compile(r"(?i)\b(select\b.+\bfrom|insert\s+into|update\s+\w+\s+set|delete\s+from)\b.*(\+|%|\{.*\})")),
     ("low", "TODO/FIXME left in code", re.compile(r"\b(TODO|FIXME|HACK)\b")),
-    ("low", "Console/debug print left in code", re.compile(r"\b(console\.log|print\s*\(|debugger;)\b")),
+    ("low", "Browser console/debug statement", re.compile(r"\b(console\.log|debugger;)\b")),
 ]
 
 WEB_RISK_PATTERNS = [
@@ -200,6 +208,8 @@ def scan_file(project: Path, path: Path, root: Path) -> list[Finding]:
     rel = path.relative_to(project).as_posix()
     project_name = project.name
     for number, line in enumerate(read_lines(path), start=1):
+        if IGNORE_MARKER in line or "re.compile(" in line:
+            continue
         for severity, title, pattern in SECRET_PATTERNS:
             if pattern.search(line):
                 findings.append(

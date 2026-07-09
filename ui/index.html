@@ -587,6 +587,23 @@
       status.textContent = payload ? `${message}\n${JSON.stringify(payload, null, 2)}` : message;
     }
 
+    async function requestJson(url, options = {}) {
+      const response = await fetch(url, options);
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) {
+        const body = await response.text();
+        const hint = body.trim().startsWith("<!DOCTYPE")
+          ? "The local server returned an HTML error page. Restart the Sentinel server so the UI and backend use the same version."
+          : body.slice(0, 180);
+        throw new Error(`${response.status} ${response.statusText}: ${hint}`);
+      }
+      const data = await response.json();
+      if (!response.ok || data.ok === false) {
+        throw new Error(data.error || `${response.status} ${response.statusText}`);
+      }
+      return data;
+    }
+
     function renderSeverity(counts = {}) {
       const items = [
         ["critical", "Critical"],
@@ -612,9 +629,7 @@
     }
 
     async function loadRuns() {
-      const response = await fetch("/runs?limit=8", { headers: authHeaders() });
-      const data = await response.json();
-      if (!data.ok) throw new Error(data.error || "Could not load runs.");
+      const data = await requestJson("/runs?limit=8", { headers: authHeaders() });
       const rows = (data.runs || []).map(run => {
         const date = run.finished_at ? new Date(run.finished_at * 1000).toLocaleString() : "Pending";
         const counts = run.severity_counts || {};
@@ -641,9 +656,7 @@
     }
 
     async function browse(path = "") {
-      const response = await fetch(`/browse?path=${encodeURIComponent(path)}`, { headers: authHeaders() });
-      const data = await response.json();
-      if (!data.ok) throw new Error(data.error || "Could not browse folders.");
+      const data = await requestJson(`/browse?path=${encodeURIComponent(path)}`, { headers: authHeaders() });
       browseState = { path: data.path, parent: data.parent };
       currentPath.textContent = data.path;
       upFolder.disabled = !data.parent;
@@ -668,9 +681,8 @@
     }
 
     async function pollJob(jobId) {
-      const response = await fetch(`/job?id=${encodeURIComponent(jobId)}`, { headers: authHeaders() });
-      const data = await response.json();
-      if (!data.ok || !data.job) throw new Error(data.error || "Job not found.");
+      const data = await requestJson(`/job?id=${encodeURIComponent(jobId)}`, { headers: authHeaders() });
+      if (!data.job) throw new Error("Job not found.");
       const job = data.job;
       jobState.textContent = job.status;
       setStatus(`Job ${job.status}`, job.result || job.error || { id: job.id });
@@ -701,7 +713,7 @@
       try {
         const webOnly = !root.value.trim() && webUrl.value.trim();
         if (webOnly) {
-          const response = await fetch("/web-qa", {
+          const result = await requestJson("/web-qa", {
             method: "POST",
             headers: { "Content-Type": "application/json", ...authHeaders() },
             body: JSON.stringify({
@@ -713,14 +725,13 @@
               discover_routes: discoverRoutes.checked
             })
           });
-          const result = await response.json();
           jobState.textContent = result.status || "Finished";
           setStatus("Web QA finished.", result);
           renderLinks(result);
           scan.disabled = false;
           return;
         }
-        const response = await fetch("/scan-async", {
+        const data = await requestJson("/scan-async", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({
@@ -733,8 +744,6 @@
             web_viewport: webViewport.value
           })
         });
-        const data = await response.json();
-        if (!data.ok) throw new Error(data.error || "Scan could not start.");
         setStatus("Scan queued.", data);
         pollTimer = setInterval(() => pollJob(data.job_id).catch(error => {
           clearInterval(pollTimer);
@@ -763,8 +772,7 @@
 
     renderSeverity();
     loadRuns().catch(() => {});
-    fetch("/health")
-      .then(response => response.json())
+    requestJson("/health")
       .then(data => { serviceState.textContent = data.ok ? "Local service ready" : "Service issue"; })
       .catch(() => { serviceState.textContent = "Service offline"; });
   </script>

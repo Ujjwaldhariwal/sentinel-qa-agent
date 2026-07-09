@@ -35,6 +35,12 @@ sentinel_policy = importlib.util.module_from_spec(POLICY_SPEC)
 sys.modules["sentinel_policy"] = sentinel_policy
 POLICY_SPEC.loader.exec_module(sentinel_policy)
 
+SERVER_PATH = Path(__file__).resolve().parents[1] / "sentinel_agent_server.py"
+SERVER_SPEC = importlib.util.spec_from_file_location("sentinel_agent_server", SERVER_PATH)
+sentinel_agent_server = importlib.util.module_from_spec(SERVER_SPEC)
+sys.modules["sentinel_agent_server"] = sentinel_agent_server
+SERVER_SPEC.loader.exec_module(sentinel_agent_server)
+
 
 class SentinelQaTests(unittest.TestCase):
     def test_secret_pattern_is_detected(self):
@@ -238,6 +244,45 @@ class SentinelQaTests(unittest.TestCase):
 
         self.assertIn("/dashboard", routes)
         self.assertIn("/login", routes)
+
+    def test_browse_directory_lists_home_child_folders(self):
+        with tempfile.TemporaryDirectory(dir=Path.home()) as tmp:
+            root = Path(tmp)
+            child = root / "sample-project"
+            child.mkdir()
+
+            listing = sentinel_agent_server.browse_directory(str(root))
+
+        self.assertEqual(listing["path"], str(root.resolve()))
+        self.assertTrue(any(item["name"] == "sample-project" for item in listing["entries"]))
+
+    def test_safe_local_path_rejects_paths_outside_home(self):
+        outside_home = Path("/private/tmp").resolve()
+
+        with self.assertRaises(ValueError):
+            sentinel_agent_server.safe_local_path(str(outside_home))
+
+    def test_scan_request_includes_severity_counts(self):
+        with tempfile.TemporaryDirectory(dir=Path.home()) as tmp:
+            project = Path(tmp)
+            (project / "package.json").write_text("{}", encoding="utf-8")
+            original_record_scan = sentinel_agent_server.agent_state.record_scan
+            sentinel_agent_server.agent_state.record_scan = lambda *args, **kwargs: 999
+            try:
+                response = sentinel_agent_server.run_scan_request(
+                    {
+                        "root": str(project),
+                        "output_dir": str(project / "reports" / "smoke"),
+                        "ai_review": False,
+                    }
+                )
+            finally:
+                sentinel_agent_server.agent_state.record_scan = original_record_scan
+
+        self.assertTrue(response["ok"])
+        self.assertIn("severity_counts", response)
+        self.assertEqual(response["project_count"], 1)
+        self.assertEqual(response["run_id"], 999)
 
 
 if __name__ == "__main__":

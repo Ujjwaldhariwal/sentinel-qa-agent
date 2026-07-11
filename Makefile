@@ -1,13 +1,18 @@
 PYTHON ?= python3
 SCANNER_IMAGE ?= sentinel-qa-scanner:latest
 
-.PHONY: install scanner-image test compile smoke self-scan clean
+.PHONY: setup install scanner-image doctor test compile smoke self-scan clean
+
+setup: install scanner-image doctor smoke
 
 install:
 	$(PYTHON) -m pip install -e .
 
 scanner-image:
 	docker build -f docker/sentinel-scanner.Dockerfile -t $(SCANNER_IMAGE) .
+
+doctor:
+	$(PYTHON) sentinel_qa.py --doctor --sandbox-image $(SCANNER_IMAGE)
 
 compile:
 	$(PYTHON) -m py_compile *.py tests/*.py

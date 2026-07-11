@@ -25,6 +25,7 @@ sentinel-web-qa = "web_qa:main"
 py-modules = [
   "agent_state",
   "agent_log",
+  "doctor",
   "qa_ai_agent",
   "sandbox_runner",
   "sentinel_agent_server",

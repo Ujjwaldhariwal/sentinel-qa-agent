@@ -32,7 +32,7 @@ The important idea: **deterministic scanners collect evidence first, AI reviews 
 
 Current development line: **v0.4.0-alpha**
 
-This branch includes the new layman-friendly dashboard, safer async scan flow, folder browser, report links, cleaner scanner heuristics, CI, and stale-server error handling.
+This branch includes the layman-friendly dashboard, safer async scan flow, folder browser, readiness doctor, smarter project detection, richer reports, cleaner scanner heuristics, CI, and stale-server error handling.
 
 | Channel | State |
 | --- | --- |
@@ -68,9 +68,10 @@ Sentinel is designed to become a small personal QA operator: local-first, quiet 
 | **Web QA** | Uses Playwright to load pages, detect blank screens, collect console/page errors, flag failed requests, capture screenshots, and test configured clicks. |
 | **Route Discovery** | Finds common Next.js, Pages Router, and static HTML routes from project structure. |
 | **AI Review** | Optional provider-key triage that reviews redacted findings and treats repository text as untrusted evidence. |
-| **Local Dashboard** | Minimal UI for selecting a project folder, running QA, viewing severity counts, and opening reports. |
+| **Local Dashboard** | Minimal UI for selecting a project folder, checking local readiness, running QA, filtering findings, and opening reports. |
 | **Async Agent API** | Queue scans, poll jobs, fetch run history, read logs, and integrate with a modal, extension, editor, or automation. |
 | **Continuous Watcher** | Watches a folder and scans again after changes. |
+| **Doctor Checks** | Verifies Python, Docker, scanner image, local state, optional AI keys, and Web QA tooling before a user wastes time debugging setup. |
 
 ## Quick Start
 
@@ -85,11 +86,22 @@ cd sentinel-qa-agent
 
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
-docker build -f docker/sentinel-scanner.Dockerfile -t sentinel-qa-scanner:latest .
+make setup
 ```
 
 Sentinel uses `--pull never` for sandbox containers. If this image is missing, sandboxed scans fail closed instead of pulling an unexpected image.
+
+Check local readiness any time:
+
+```bash
+sentinel-qa --doctor
+```
+
+Machine-readable doctor output:
+
+```bash
+sentinel-qa --doctor --doctor-json
+```
 
 Run a basic project scan:
 
@@ -115,6 +127,8 @@ Reports are written as:
 
 - `report.md` for humans
 - `report.json` for tools and automation
+
+Reports include severity totals, top-risk next steps, category counts, detected languages/frameworks, test signals, CI signals, and normalized findings.
 
 ## Sandbox Mode
 
@@ -377,6 +391,8 @@ This is where Sentinel can become genuinely strong.
 Common workflow:
 
 ```bash
+make setup
+make doctor
 make scanner-image
 make test
 make smoke
@@ -405,6 +421,7 @@ make self-scan
 | Command | Purpose |
 | --- | --- |
 | `sentinel-qa` | Scan one project or a directory of projects. |
+| `sentinel-qa --doctor` | Check local setup readiness. |
 | `sentinel-web-qa` | Run browser QA against a live app. |
 | `sentinel-agent-server` | Start the local dashboard and API. |
 | `sentinel-daemon` | Watch source trees and scan after changes. |
@@ -418,6 +435,9 @@ make self-scan
 - [x] Async local service
 - [x] Minimal dashboard
 - [x] Folder browser
+- [x] Local readiness doctor
+- [x] Smarter project detection in reports
+- [x] Filterable findings panel
 - [x] CI and self-scan gate
 - [x] Docker sandbox for optional repo tool execution
 - [x] Prebuilt scanner image with pinned Semgrep/Bandit/pip-audit/npm tooling

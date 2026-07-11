@@ -20,8 +20,9 @@ import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 
 DEFAULT_EXCLUDES = {
@@ -454,6 +455,163 @@ def looks_like_test(path: Path) -> bool:
     )
 
 
+def detect_project_profile(project: Path) -> dict[str, Any]:
+    """Return lightweight project signals without executing repo code."""
+    markers: list[str] = []
+    languages: set[str] = set()
+    frameworks: set[str] = set()
+    package_managers: set[str] = set()
+    test_signals: set[str] = set()
+    ci: set[str] = set()
+
+    marker_map = {
+        "package.json": "node",
+        "pyproject.toml": "python",
+        "requirements.txt": "python",
+        "go.mod": "go",
+        "Cargo.toml": "rust",
+        "pom.xml": "java",
+        "build.gradle": "java",
+        "composer.json": "php",
+    }
+    for marker, language in marker_map.items():
+        if (project / marker).exists():
+            markers.append(marker)
+            languages.add(language)
+
+    lock_files = {
+        "package-lock.json": "npm",
+        "pnpm-lock.yaml": "pnpm",
+        "yarn.lock": "yarn",
+        "uv.lock": "uv",
+        "poetry.lock": "poetry",
+        "Pipfile.lock": "pipenv",
+        "Cargo.lock": "cargo",
+        "go.sum": "go",
+        "composer.lock": "composer",
+    }
+    for lock_file, manager in lock_files.items():
+        if (project / lock_file).exists():
+            package_managers.add(manager)
+
+    package_json = read_json_file(project / "package.json")
+    if package_json:
+        package_managers.add(package_json.get("packageManager", "").split("@", 1)[0] or "npm")
+        dependencies = dependency_names(package_json, ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"])
+        node_frameworks = {
+            "next": "Next.js",
+            "react": "React",
+            "vue": "Vue",
+            "svelte": "Svelte",
+            "@angular/core": "Angular",
+            "express": "Express",
+            "@nestjs/core": "NestJS",
+            "vite": "Vite",
+        }
+        frameworks.update(label for name, label in node_frameworks.items() if name in dependencies)
+        scripts = package_json.get("scripts") if isinstance(package_json.get("scripts"), dict) else {}
+        for script in ("test", "lint", "typecheck", "e2e"):
+            if script in scripts:
+                test_signals.add(f"npm script: {script}")
+
+    pyproject = read_toml_file(project / "pyproject.toml")
+    requirements_text = read_small_text(project / "requirements.txt")
+    python_dependencies = set()
+    if pyproject:
+        project_section = pyproject.get("project") if isinstance(pyproject.get("project"), dict) else {}
+        python_dependencies.update(normalize_dependency_name(item) for item in project_section.get("dependencies", []) if isinstance(item, str))
+        optional = project_section.get("optional-dependencies") if isinstance(project_section.get("optional-dependencies"), dict) else {}
+        for items in optional.values():
+            if isinstance(items, list):
+                python_dependencies.update(normalize_dependency_name(item) for item in items if isinstance(item, str))
+        tool_section = pyproject.get("tool") if isinstance(pyproject.get("tool"), dict) else {}
+        if "pytest" in tool_section:
+            test_signals.add("pytest config")
+    if requirements_text:
+        python_dependencies.update(
+            normalize_dependency_name(line)
+            for line in requirements_text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+    python_frameworks = {"django": "Django", "fastapi": "FastAPI", "flask": "Flask", "pytest": "pytest"}
+    frameworks.update(label for name, label in python_frameworks.items() if name in python_dependencies)
+
+    if (project / "go.mod").exists():
+        go_mod = read_small_text(project / "go.mod")
+        if "github.com/gin-gonic/gin" in go_mod:
+            frameworks.add("Gin")
+        if "github.com/labstack/echo" in go_mod:
+            frameworks.add("Echo")
+    if (project / "Cargo.toml").exists():
+        cargo = read_small_text(project / "Cargo.toml")
+        if "actix-web" in cargo:
+            frameworks.add("Actix Web")
+        if "axum" in cargo:
+            frameworks.add("Axum")
+
+    common_tests = ["tests", "test", "__tests__", "spec", "e2e", "playwright.config.ts", "pytest.ini"]
+    for signal in common_tests:
+        if (project / signal).exists():
+            test_signals.add(signal)
+
+    ci_markers = [".github/workflows", ".gitlab-ci.yml", "bitbucket-pipelines.yml", "azure-pipelines.yml"]
+    for marker in ci_markers:
+        if (project / marker).exists():
+            ci.add(marker)
+
+    return {
+        "path": str(project),
+        "name": project.name or str(project),
+        "markers": sorted(markers),
+        "languages": sorted(languages),
+        "frameworks": sorted(frameworks),
+        "package_managers": sorted(package_managers),
+        "test_signals": sorted(test_signals),
+        "ci": sorted(ci),
+    }
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def read_toml_file(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+def read_small_text(path: Path, max_bytes: int = 256_000) -> str:
+    try:
+        if not path.exists() or path.stat().st_size > max_bytes:
+            return ""
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def dependency_names(package_json: dict[str, Any], sections: list[str]) -> set[str]:
+    names: set[str] = set()
+    for section in sections:
+        dependencies = package_json.get(section)
+        if isinstance(dependencies, dict):
+            names.update(str(name) for name in dependencies)
+    return names
+
+
+def normalize_dependency_name(value: str) -> str:
+    return re.split(r"[<>=!~;\[\]\s]", value.strip(), maxsplit=1)[0].lower()
+
+
 def project_health_findings(project: Path, has_tests: bool) -> list[Finding]:
     findings: list[Finding] = []
     if not has_tests:
@@ -559,10 +717,57 @@ def scan_project(
     return findings
 
 
-def render_markdown(root: Path, projects: list[Path], findings: list[Finding], elapsed: float) -> str:
+def severity_counts(findings: list[Finding]) -> dict[str, int]:
     counts = {severity: 0 for severity in SEVERITY_ORDER}
     for finding in findings:
-        counts[finding.severity] += 1
+        counts[finding.severity] = counts.get(finding.severity, 0) + 1
+    return counts
+
+
+def category_counts(findings: list[Finding]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for finding in findings:
+        counts[finding.category] = counts.get(finding.category, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+
+
+def build_scan_summary(findings: list[Finding], profiles: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
+    ordered = sorted(findings, key=lambda item: (SEVERITY_ORDER.get(item.severity, 99), item.project, item.path, item.line or 0))
+    top_items = ordered[:5]
+    all_languages = sorted({language for profile in (profiles or {}).values() for language in profile.get("languages", [])})
+    all_frameworks = sorted({framework for profile in (profiles or {}).values() for framework in profile.get("frameworks", [])})
+    recommendations: list[str] = []
+    counts = severity_counts(findings)
+    categories = category_counts(findings)
+    if counts.get("critical") or counts.get("high"):
+        recommendations.append("Fix critical and high findings before trusting this repository.")
+    if categories.get("secrets"):
+        recommendations.append("Rotate any real secrets before committing or sharing reports.")
+    if categories.get("test-failure") or categories.get("qa-coverage"):
+        recommendations.append("Get smoke tests passing so future scans can catch regressions.")
+    if not findings:
+        recommendations.append("No findings were detected; still run project-specific tests and a human review.")
+    elif not recommendations:
+        recommendations.append("Review the top findings and decide which ones are real risks in this project context.")
+    return {
+        "severity_counts": counts,
+        "category_counts": categories,
+        "languages": all_languages,
+        "frameworks": all_frameworks,
+        "top_findings": [dataclasses.asdict(item) for item in top_items],
+        "recommended_next_steps": recommendations,
+    }
+
+
+def render_markdown(
+    root: Path,
+    projects: list[Path],
+    findings: list[Finding],
+    elapsed: float,
+    profiles: dict[str, dict[str, Any]] | None = None,
+) -> str:
+    counts = severity_counts(findings)
+    summary = build_scan_summary(findings, profiles)
 
     lines = [
         "# Sentinel QA Agent Report",
@@ -577,6 +782,36 @@ def render_markdown(root: Path, projects: list[Path], findings: list[Finding], e
     ]
     for severity in SEVERITY_ORDER:
         lines.append(f"- {severity.title()}: {counts[severity]}")
+    lines.extend(["", "## What To Do First", ""])
+    for step in summary["recommended_next_steps"]:
+        lines.append(f"- {step}")
+    if summary["top_findings"]:
+        lines.append("")
+        lines.append("Top risk items:")
+        for finding in summary["top_findings"][:3]:
+            location = f"{finding['path']}:{finding['line']}" if finding.get("line") else finding["path"]
+            lines.append(f"- [{finding['severity'].upper()}] {finding['title']} (`{finding['project']}/{location}`)")
+    lines.extend(["", "## Project Signals", ""])
+    if profiles:
+        for project in projects:
+            profile = profiles.get(str(project), {})
+            languages = ", ".join(profile.get("languages") or ["unknown"])
+            frameworks = ", ".join(profile.get("frameworks") or ["none detected"])
+            tests = ", ".join(profile.get("test_signals") or ["none detected"])
+            ci = ", ".join(profile.get("ci") or ["none detected"])
+            lines.extend(
+                [
+                    f"### `{project}`",
+                    "",
+                    f"- Languages: {languages}",
+                    f"- Frameworks: {frameworks}",
+                    f"- Tests: {tests}",
+                    f"- CI: {ci}",
+                    "",
+                ]
+            )
+    else:
+        lines.append("No project profile signals were generated.")
     lines.extend(["", "## Projects", ""])
     for project in projects:
         lines.append(f"- `{project}`")
@@ -603,11 +838,20 @@ def render_markdown(root: Path, projects: list[Path], findings: list[Finding], e
     return "\n".join(lines)
 
 
-def write_json(path: Path, findings: list[Finding], projects: list[Path], root: Path, elapsed: float) -> None:
+def write_json(
+    path: Path,
+    findings: list[Finding],
+    projects: list[Path],
+    root: Path,
+    elapsed: float,
+    profiles: dict[str, dict[str, Any]] | None = None,
+) -> None:
     payload = {
         "root": str(root),
         "projects": [str(project) for project in projects],
         "runtime_seconds": elapsed,
+        "summary": build_scan_summary(findings, profiles),
+        "profiles": profiles or {},
         "findings": [dataclasses.asdict(finding) for finding in findings],
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -657,6 +901,7 @@ def run_scan(
     if not projects:
         projects = [root]
 
+    profiles = {str(project): detect_project_profile(project) for project in projects}
     all_findings: list[Finding] = list(initial_findings)
     worker_count = workers or max(2, (os.cpu_count() or 2) // 2)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, worker_count)) as executor:
@@ -690,12 +935,13 @@ def run_scan(
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "report.md"
     json_path = output_dir / "report.json"
-    markdown_path.write_text(render_markdown(root, projects, all_findings, elapsed), encoding="utf-8")
-    write_json(json_path, all_findings, projects, root, elapsed)
+    markdown_path.write_text(render_markdown(root, projects, all_findings, elapsed, profiles), encoding="utf-8")
+    write_json(json_path, all_findings, projects, root, elapsed, profiles)
 
     return {
         "root": root,
         "projects": projects,
+        "profiles": profiles,
         "findings": all_findings,
         "elapsed": elapsed,
         "markdown_path": markdown_path.resolve(),
@@ -728,6 +974,8 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--ai-provider", choices=["openai", "anthropic"], default=os.getenv("QA_AGENT_PROVIDER"), help="AI provider for --ai-review.")
     parser.add_argument("--model", default=os.getenv("QA_AGENT_MODEL"), help="AI model for --ai-review.")
     parser.add_argument("--history", action="store_true", help="Show recent scan history.")
+    parser.add_argument("--doctor", action="store_true", help="Check local setup readiness and exit.")
+    parser.add_argument("--doctor-json", action="store_true", help="Print --doctor output as JSON.")
     parser.add_argument("--record", action="store_true", help="Record this scan in local history.")
     parser.add_argument("--web-url", help="Run web QA checks against a running app URL.")
     parser.add_argument("--web-route", action="append", default=[], help="Route or URL to include in web crawl. May be repeated.")
@@ -740,6 +988,15 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
 
 def main(argv: Iterable[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    if args.doctor:
+        import doctor
+
+        payload = doctor.run_doctor(args.root, scanner_image=args.sandbox_image)
+        if args.doctor_json:
+            print(json.dumps(payload, indent=2))
+        else:
+            print(doctor.format_doctor_text(payload))
+        return 1 if payload["summary"]["fail"] else 0
     if args.history:
         import agent_state
 

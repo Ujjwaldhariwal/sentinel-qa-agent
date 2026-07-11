@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -126,6 +127,41 @@ class SentinelQaTests(unittest.TestCase):
 
         self.assertTrue(markdown_exists)
         self.assertTrue(json_exists)
+
+    def test_project_profile_detects_common_stack_signals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "package.json").write_text(
+                '{"dependencies":{"next":"latest","react":"latest"},"scripts":{"test":"vitest"}}',
+                encoding="utf-8",
+            )
+            (project / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+            (project / "tests").mkdir()
+            (project / ".github" / "workflows").mkdir(parents=True)
+
+            profile = sentinel_qa.detect_project_profile(project)
+
+        self.assertIn("node", profile["languages"])
+        self.assertIn("Next.js", profile["frameworks"])
+        self.assertIn("React", profile["frameworks"])
+        self.assertIn("pnpm", profile["package_managers"])
+        self.assertIn("npm script: test", profile["test_signals"])
+        self.assertIn(".github/workflows", profile["ci"])
+
+    def test_run_scan_json_includes_summary_and_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            output = project / "report"
+            (project / "pyproject.toml").write_text("[project]\nname='api'\ndependencies=['fastapi']\n", encoding="utf-8")
+            (project / "app.py").write_text("debug = true\n", encoding="utf-8")
+
+            result = sentinel_qa.run_scan(project, output_dir=output, workers=1, run_optional_tools=False)
+            payload = json.loads(result["json_path"].read_text(encoding="utf-8"))
+
+        self.assertIn("summary", payload)
+        self.assertIn("profiles", payload)
+        self.assertIn("FastAPI", payload["profiles"][str(project.resolve())]["frameworks"])
+        self.assertGreaterEqual(payload["summary"]["severity_counts"]["medium"], 1)
 
     def test_scan_history_records_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -285,12 +321,27 @@ class SentinelQaTests(unittest.TestCase):
         self.assertEqual(response["project_count"], 1)
         self.assertEqual(response["run_id"], 999)
 
+    def test_doctor_fails_closed_when_docker_is_unavailable(self):
+        original = sentinel_agent_server.doctor.sandbox_runner.docker_available
+        sentinel_agent_server.doctor.sandbox_runner.docker_available = lambda: False
+        try:
+            payload = sentinel_agent_server.doctor.run_doctor()
+        finally:
+            sentinel_agent_server.doctor.sandbox_runner.docker_available = original
+
+        statuses = {check["name"]: check["status"] for check in payload["checks"]}
+        self.assertEqual(statuses["Docker"], "fail")
+        self.assertEqual(statuses["Scanner image"], "fail")
+        self.assertFalse(payload["ok"])
+
     def test_dashboard_contains_findings_investigation_controls(self):
         html = (Path(__file__).resolve().parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('id="findingsPanel"', html)
         self.assertIn('id="severityFilter"', html)
         self.assertIn('id="categoryFilter"', html)
+        self.assertIn('id="readiness"', html)
+        self.assertIn("loadDoctor", html)
         self.assertIn("loadFindings", html)
         self.assertIn("inspectRun", html)
         self.assertIn("Inspect", html)

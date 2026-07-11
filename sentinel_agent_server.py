@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 import agent_state
 import agent_log
+import doctor
 import qa_ai_agent
 import sentinel_qa
 import sentinel_policy
@@ -77,6 +78,8 @@ class AgentHandler(BaseHTTPRequestHandler):
             self.end_headers()
         elif parsed.path == "/health":
             self.send_json({"ok": True, "service": "sentinel-qa-agent"})
+        elif parsed.path == "/doctor":
+            self.send_json({"ok": True, "doctor": doctor.run_doctor()})
         elif parsed.path == "/browse":
             try:
                 query = parse_qs(parsed.query)

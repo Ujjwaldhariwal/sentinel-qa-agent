@@ -145,6 +145,13 @@ def get_run(run_id: int, db_path: Path = DEFAULT_DB) -> dict[str, Any] | None:
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
     data["severity_counts"] = json.loads(data["severity_counts"])
+    output_dir = Path(data["output_dir"])
+    test_cases_md = output_dir / "test_cases.md"
+    test_cases_json = output_dir / "test_cases.json"
+    if test_cases_md.exists():
+        data["test_cases_md"] = str(test_cases_md)
+    if test_cases_json.exists():
+        data["test_cases_json"] = str(test_cases_json)
     return data
 
 
@@ -170,24 +177,27 @@ def update_job(
     finished: bool = False,
     db_path: Path = DEFAULT_DB,
 ) -> None:
-    updates = ["status = ?"]
-    values: list[Any] = [status]
     now = time.time()
-    if started:
-        updates.append("started_at = ?")
-        values.append(now)
-    if finished:
-        updates.append("finished_at = ?")
-        values.append(now)
-    if result is not None:
-        updates.append("result = ?")
-        values.append(json.dumps(result))
-    if error is not None:
-        updates.append("error = ?")
-        values.append(error)
-    values.append(job_id)
     with connect(db_path) as connection:
-        connection.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", values)
+        connection.execute(
+            """
+            UPDATE jobs
+            SET status = ?,
+                started_at = COALESCE(?, started_at),
+                finished_at = COALESCE(?, finished_at),
+                result = COALESCE(?, result),
+                error = COALESCE(?, error)
+            WHERE id = ?
+            """,
+            (
+                status,
+                now if started else None,
+                now if finished else None,
+                json.dumps(result) if result is not None else None,
+                error,
+                job_id,
+            ),
+        )
         connection.commit()
 
 
@@ -220,6 +230,14 @@ def list_jobs(limit: int = 50, db_path: Path = DEFAULT_DB) -> list[dict[str, Any
 
 def job_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
-    data["payload"] = json.loads(data["payload"]) if data.get("payload") else None
-    data["result"] = json.loads(data["result"]) if data.get("result") else None
+    try:
+        data["payload"] = json.loads(data["payload"]) if data.get("payload") else None
+    except json.JSONDecodeError:
+        data["payload"] = None
+        data["error"] = data.get("error") or "Stored job payload is corrupt JSON."
+    try:
+        data["result"] = json.loads(data["result"]) if data.get("result") else None
+    except json.JSONDecodeError:
+        data["result"] = None
+        data["error"] = data.get("error") or "Stored job result is corrupt JSON."
     return data

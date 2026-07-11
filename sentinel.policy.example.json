@@ -3,10 +3,15 @@
     "exclude_dirs": ["tmp", "logs"],
     "exclude_globs": ["**/*.min.js", "**/fixtures/**"],
     "timeout_seconds": 90,
-    "workers": null
+    "workers": null,
+    "max_files": 50000,
+    "max_depth": 40,
+    "max_file_bytes": 2000000,
+    "max_scan_seconds": 300
   },
   "ai": {
     "enabled": false,
+    "provider": "openai",
     "model": "gpt-5.4-mini"
   },
   "web": {

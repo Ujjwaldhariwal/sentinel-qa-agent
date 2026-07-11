@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import mimetypes
 import socketserver
 import time
 import uuid
@@ -20,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 
 import agent_state
 import agent_log
+import doctor
 import qa_ai_agent
 import sentinel_qa
 import sentinel_policy
@@ -30,6 +32,22 @@ import web_qa
 APP_DIR = Path(__file__).resolve().parent
 EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 SERVICE_CONFIG = settings.load_config()
+SAFE_ARTIFACT_SUFFIXES = {".json", ".md", ".txt", ".log", ".png", ".jpg", ".jpeg", ".webp"}
+SAFE_ARTIFACT_NAMES = {
+    "report.md",
+    "report.json",
+    "ai_review.md",
+    "ai_review.json",
+    "ai_review_input.redacted.json",
+    "ai_review_error.txt",
+    "web_qa.md",
+    "web_qa.json",
+    "web_crawl.md",
+    "web_crawl.json",
+    "web_qa_screenshot.png",
+    "test_cases.md",
+    "test_cases.json",
+}
 
 
 class FastLocalHTTPServer(ThreadingHTTPServer):
@@ -57,8 +75,24 @@ class AgentHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/":
             self.send_file(APP_DIR / "ui" / "index.html", "text/html; charset=utf-8")
+        elif parsed.path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
         elif parsed.path == "/health":
             self.send_json({"ok": True, "service": "sentinel-qa-agent"})
+        elif parsed.path == "/doctor":
+            self.send_json({"ok": True, "doctor": doctor.run_doctor()})
+        elif parsed.path == "/browse":
+            try:
+                query = parse_qs(parsed.query)
+                current = (query.get("path") or [""])[0]
+                self.send_json({"ok": True, **browse_directory(current)})
+            except Exception as exc:
+                self.send_json({"ok": False, "error": str(exc)}, status=400)
+        elif parsed.path == "/artifact":
+            query = parse_qs(parsed.query)
+            artifact = (query.get("path") or [""])[0]
+            self.send_artifact(artifact)
         elif parsed.path == "/jobs":
             self.send_json({"ok": True, "jobs": agent_state.list_jobs()})
         elif parsed.path == "/job":
@@ -174,7 +208,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             return True
         token = SERVICE_CONFIG.get("auth_token") or ""
         if not token:
-            return True
+            return False
         header = self.headers.get("Authorization", "")
         if header == f"Bearer {token}":
             return True
@@ -189,6 +223,16 @@ class AgentHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def send_artifact(self, raw_path: str) -> None:
+        try:
+            path = safe_artifact_path(raw_path)
+            if not path.is_file():
+                raise FileNotFoundError(f"Artifact does not exist: {path}")
+            content_type = mimetypes.guess_type(path.name)[0] or "text/plain"
+            self.send_file(path, content_type)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=404)
 
     def send_json(self, payload: dict, status: int = 200) -> None:
         data = json.dumps(payload, indent=2).encode("utf-8")
@@ -219,6 +263,77 @@ def safe_payload(payload: dict) -> dict:
     return clean
 
 
+def safe_local_path(raw_path: str) -> Path:
+    if not raw_path:
+        raise ValueError("Path is required.")
+    path = Path(raw_path).expanduser().resolve()
+    home = Path.home().resolve()
+    if path != home and home not in path.parents:
+        raise ValueError("Path must be inside your home folder.")
+    return path
+
+
+def safe_artifact_path(raw_path: str) -> Path:
+    path = safe_local_path(raw_path)
+    if path.suffix.lower() not in SAFE_ARTIFACT_SUFFIXES:
+        raise ValueError("Only report and image artifacts can be opened.")
+    if path.name not in SAFE_ARTIFACT_NAMES:
+        raise ValueError("Only Sentinel-generated artifact names can be opened.")
+    return path
+
+
+def browse_roots() -> list[Path]:
+    candidates = [
+        Path.home(),
+        Path.home() / "Desktop",
+        Path.home() / "Documents",
+        Path.home() / "Downloads",
+        APP_DIR,
+    ]
+    seen: set[Path] = set()
+    roots: list[Path] = []
+    for candidate in candidates:
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.exists() and resolved.is_dir() and resolved not in seen:
+            seen.add(resolved)
+            roots.append(resolved)
+    return roots
+
+
+def browse_directory(raw_path: str = "") -> dict:
+    if raw_path:
+        path = safe_local_path(raw_path)
+    else:
+        path = Path.home().resolve()
+    if not path.exists() or not path.is_dir():
+        raise NotADirectoryError(f"Folder does not exist: {path}")
+    entries = []
+    for child in path.iterdir():
+        if child.name.startswith(".") or not child.is_dir():
+            continue
+        try:
+            resolved = child.resolve()
+        except OSError:
+            continue
+        entries.append({"name": child.name, "path": str(resolved)})
+    entries.sort(key=lambda item: item["name"].lower())
+    parent = path.parent if path != Path.home().resolve() else None
+    return {
+        "path": str(path),
+        "parent": str(parent) if parent and parent.exists() else None,
+        "roots": [{"name": root.name or str(root), "path": str(root)} for root in browse_roots()],
+        "entries": entries[:300],
+    }
+
+
+def default_scan_output_dir(root: Path) -> Path:
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return root / "reports" / f"sentinel-{stamp}-{uuid.uuid4().hex[:8]}"
+
+
 def run_scan_job(job_id: str, body: dict) -> None:
     agent_state.update_job(job_id, "running", started=True)
     agent_log.log_event("job_started", job_id=job_id)
@@ -233,11 +348,16 @@ def run_scan_job(job_id: str, body: dict) -> None:
 
 
 def run_scan_request(body: dict) -> dict:
+    if not body.get("root"):
+        raise ValueError("root is required.")
     root = Path(body["root"]).expanduser().resolve()
+    if not root.exists() or not root.is_dir():
+        raise FileNotFoundError(f"Project folder does not exist: {root}")
     policy_path = Path(body["policy_path"]).expanduser().resolve() if body.get("policy_path") else None
     policy = sentinel_policy.load_policy(root=root, path=policy_path)
-    output_dir = Path(body.get("output_dir") or APP_DIR / SERVICE_CONFIG.get("default_output_dir", "latest-report")).expanduser().resolve()
-    model = body.get("model") or policy["ai"].get("model") or SERVICE_CONFIG.get("model") or qa_ai_agent.DEFAULT_MODEL
+    output_dir = Path(body["output_dir"]).expanduser().resolve() if body.get("output_dir") else default_scan_output_dir(root).resolve()
+    ai_provider = body.get("ai_provider") or policy["ai"].get("provider") or SERVICE_CONFIG.get("ai_provider") or qa_ai_agent.DEFAULT_PROVIDER
+    model = body.get("model") or policy["ai"].get("model") or SERVICE_CONFIG.get("model") or qa_ai_agent.default_model_for_provider(ai_provider)
     include_ai = bool(body.get("ai_review", policy["ai"].get("enabled") if policy["ai"].get("enabled") is not None else SERVICE_CONFIG.get("ai_review", False)))
     web_url = body.get("web_url") or policy["web"].get("base_url")
     agent_log.log_event("scan_started", root=str(root), output_dir=str(output_dir))
@@ -247,6 +367,14 @@ def run_scan_request(body: dict) -> dict:
         config_path=policy_path,
         workers=body.get("workers") or policy["scan"].get("workers") or SERVICE_CONFIG.get("max_workers"),
         timeout=int(body.get("timeout") or policy["scan"].get("timeout_seconds") or SERVICE_CONFIG.get("scan_timeout_seconds", 90)),
+        allow_network=bool(body.get("allow_network", False)),
+        run_optional_tools=not bool(body.get("skip_optional_tools", False)),
+        sandbox_max_output_bytes=int(body.get("sandbox_max_output_bytes") or 1_000_000),
+        max_file_bytes=int(body.get("max_file_bytes") or policy["scan"].get("max_file_bytes") or 2_000_000),
+        max_files=int(body.get("max_files") or policy["scan"].get("max_files") or 50_000),
+        max_depth=int(body.get("max_depth") or policy["scan"].get("max_depth") or 40),
+        max_scan_seconds=int(body.get("max_scan_seconds") or policy["scan"].get("max_scan_seconds") or 300),
+        generate_test_plan=not bool(body.get("skip_test_plan", False)),
     )
     ai_path = None
     status = "completed"
@@ -257,6 +385,10 @@ def run_scan_request(body: dict) -> dict:
         "report_json": str(result["json_path"]),
         "finding_count": len(result["findings"]),
         "project_count": len(result["projects"]),
+        "test_case_count": len(result.get("test_cases") or []),
+        "test_cases_md": str(result["test_cases_md"]),
+        "test_cases_json": str(result["test_cases_json"]),
+        "severity_counts": agent_state.severity_counts(result["findings"]),
     }
     if include_ai:
         try:
@@ -266,6 +398,7 @@ def run_scan_request(body: dict) -> dict:
                 result["projects"],
                 result["findings"],
                 model=model,
+                provider=ai_provider,
             )
             ai_path = output_dir / "ai_review.md"
             response["ai_review_md"] = str(ai_path)
@@ -342,6 +475,8 @@ def main() -> int:
     print(f"Sentinel QA Agent listening on http://{host}:{port}", flush=True)
     if SERVICE_CONFIG.get("require_token") and SERVICE_CONFIG.get("auth_token"):
         print("Token auth enabled. Send Authorization: Bearer <token>.", flush=True)
+    elif SERVICE_CONFIG.get("require_token"):
+        print("Token auth enabled but no token is configured. Protected API calls will be rejected; run --init-config first.", flush=True)
     server.serve_forever()
     return 0
 

@@ -25,6 +25,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "max_workers": None,
     "scan_timeout_seconds": 90,
     "ai_review": False,
+    "ai_provider": "openai",
     "model": "gpt-5.4-mini",
 }
 
@@ -44,6 +45,7 @@ def apply_env_overrides(config: dict[str, Any]) -> None:
         "SENTINEL_QA_HOST": ("host", str),
         "SENTINEL_QA_PORT": ("port", int),
         "SENTINEL_QA_TOKEN": ("auth_token", str),
+        "SENTINEL_QA_AI_PROVIDER": ("ai_provider", str),
         "SENTINEL_QA_MODEL": ("model", str),
     }
     for env_name, (key, caster) in mapping.items():

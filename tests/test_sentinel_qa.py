@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 import tempfile
 import unittest
@@ -35,6 +36,12 @@ sentinel_policy = importlib.util.module_from_spec(POLICY_SPEC)
 sys.modules["sentinel_policy"] = sentinel_policy
 POLICY_SPEC.loader.exec_module(sentinel_policy)
 
+SERVER_PATH = Path(__file__).resolve().parents[1] / "sentinel_agent_server.py"
+SERVER_SPEC = importlib.util.spec_from_file_location("sentinel_agent_server", SERVER_PATH)
+sentinel_agent_server = importlib.util.module_from_spec(SERVER_SPEC)
+sys.modules["sentinel_agent_server"] = sentinel_agent_server
+SERVER_SPEC.loader.exec_module(sentinel_agent_server)
+
 
 class SentinelQaTests(unittest.TestCase):
     def test_secret_pattern_is_detected(self):
@@ -47,6 +54,54 @@ class SentinelQaTests(unittest.TestCase):
             findings = sentinel_qa.scan_file(project, source, project)
 
         self.assertTrue(any(finding.category == "secrets" for finding in findings))
+
+    def test_scanner_rule_definitions_are_not_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "rules.py"
+            source.write_text(
+                '("high", "Potential XSS sink", re.compile(r"innerHTML"))\n',
+                encoding="utf-8",
+            )
+
+            findings = sentinel_qa.scan_file(project, source, project)
+
+        self.assertEqual(findings, [])
+
+    def test_safe_subprocess_run_is_not_shell_interpolation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "tool.py"
+            source.write_text(
+                'completed = subprocess.run(["git", "status"], check=False)\n',
+                encoding="utf-8",
+            )
+
+            findings = sentinel_qa.scan_file(project, source, project)
+
+        self.assertFalse(any(finding.title == "Shell execution with interpolation" for finding in findings))
+
+    def test_report_folders_are_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "package.json").write_text("{}", encoding="utf-8")
+            reports = project / "reports"
+            reports.mkdir()
+            (reports / "report.md").write_text("innerHTML\n", encoding="utf-8")  # sentinel-qa: ignore
+
+            result = sentinel_qa.run_scan(project, output_dir=project / "out", workers=1, run_optional_tools=False)
+
+        self.assertFalse(any(finding.path.startswith("reports/") for finding in result["findings"]))
+
+    def test_inline_ignore_marker_suppresses_known_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            source = project / "fixture.py"
+            source.write_text('sample = "innerHTML"  # sentinel-qa: ignore\n', encoding="utf-8")
+
+            findings = sentinel_qa.scan_file(project, source, project)
+
+        self.assertEqual(findings, [])
 
     def test_markdown_report_contains_summary(self):
         report = sentinel_qa.render_markdown(
@@ -66,12 +121,71 @@ class SentinelQaTests(unittest.TestCase):
             project.mkdir()
             (project / "package.json").write_text('{"scripts":{}}\n', encoding="utf-8")
 
-            result = sentinel_qa.run_scan(project, output_dir=output, workers=1)
+            result = sentinel_qa.run_scan(project, output_dir=output, workers=1, run_optional_tools=False)
             markdown_exists = result["markdown_path"].exists()
             json_exists = result["json_path"].exists()
 
         self.assertTrue(markdown_exists)
         self.assertTrue(json_exists)
+
+    def test_project_profile_detects_common_stack_signals(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / "package.json").write_text(
+                '{"dependencies":{"next":"latest","react":"latest"},"scripts":{"test":"vitest"}}',
+                encoding="utf-8",
+            )
+            (project / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\n", encoding="utf-8")
+            (project / "tests").mkdir()
+            (project / ".github" / "workflows").mkdir(parents=True)
+
+            profile = sentinel_qa.detect_project_profile(project)
+
+        self.assertIn("node", profile["languages"])
+        self.assertIn("Next.js", profile["frameworks"])
+        self.assertIn("React", profile["frameworks"])
+        self.assertIn("pnpm", profile["package_managers"])
+        self.assertIn("npm script: test", profile["test_signals"])
+        self.assertIn(".github/workflows", profile["ci"])
+
+    def test_run_scan_json_includes_summary_and_profiles(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            output = project / "report"
+            (project / "pyproject.toml").write_text("[project]\nname='api'\ndependencies=['fastapi']\n", encoding="utf-8")
+            (project / "app.py").write_text("debug = true\n", encoding="utf-8")
+
+            result = sentinel_qa.run_scan(project, output_dir=output, workers=1, run_optional_tools=False)
+            payload = json.loads(result["json_path"].read_text(encoding="utf-8"))
+
+        self.assertIn("summary", payload)
+        self.assertIn("profiles", payload)
+        self.assertIn("FastAPI", payload["profiles"][str(project.resolve())]["frameworks"])
+        self.assertGreaterEqual(payload["summary"]["severity_counts"]["medium"], 1)
+
+    def test_run_scan_generates_test_case_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            output = project / "report"
+            (project / "package.json").write_text(
+                '{"dependencies":{"react":"latest"},"scripts":{"test":"vitest"}}',
+                encoding="utf-8",
+            )
+            (project / "component.tsx").write_text(
+                "export function Widget(){ return <div /> }\n",
+                encoding="utf-8",
+            )
+
+            result = sentinel_qa.run_scan(project, output_dir=output, workers=1, run_optional_tools=False)
+            payload = json.loads(result["json_path"].read_text(encoding="utf-8"))
+            test_cases_md_exists = result["test_cases_md"].exists()
+            test_cases_json_exists = result["test_cases_json"].exists()
+
+        self.assertGreater(len(result["test_cases"]), 0)
+        self.assertTrue(test_cases_md_exists)
+        self.assertTrue(test_cases_json_exists)
+        self.assertIn("test_cases", payload)
+        self.assertTrue(any(case["kind"] == "frontend-smoke" for case in payload["test_cases"]))
 
     def test_scan_history_records_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -190,6 +304,76 @@ class SentinelQaTests(unittest.TestCase):
 
         self.assertIn("/dashboard", routes)
         self.assertIn("/login", routes)
+
+    def test_browse_directory_lists_home_child_folders(self):
+        with tempfile.TemporaryDirectory(dir=Path.home()) as tmp:
+            root = Path(tmp)
+            child = root / "sample-project"
+            child.mkdir()
+
+            listing = sentinel_agent_server.browse_directory(str(root))
+
+        self.assertEqual(listing["path"], str(root.resolve()))
+        self.assertTrue(any(item["name"] == "sample-project" for item in listing["entries"]))
+
+    def test_safe_local_path_rejects_paths_outside_home(self):
+        outside_home = Path("/private/tmp").resolve()
+
+        with self.assertRaises(ValueError):
+            sentinel_agent_server.safe_local_path(str(outside_home))
+
+    def test_scan_request_includes_severity_counts(self):
+        with tempfile.TemporaryDirectory(dir=Path.home()) as tmp:
+            project = Path(tmp)
+            (project / "package.json").write_text("{}", encoding="utf-8")
+            original_record_scan = sentinel_agent_server.agent_state.record_scan
+            sentinel_agent_server.agent_state.record_scan = lambda *args, **kwargs: 999
+            try:
+                response = sentinel_agent_server.run_scan_request(
+                    {
+                        "root": str(project),
+                        "output_dir": str(project / "reports" / "smoke"),
+                        "ai_review": False,
+                        "skip_optional_tools": True,
+                    }
+                )
+            finally:
+                sentinel_agent_server.agent_state.record_scan = original_record_scan
+
+        self.assertTrue(response["ok"])
+        self.assertIn("severity_counts", response)
+        self.assertIn("test_cases_md", response)
+        self.assertIn("test_cases_json", response)
+        self.assertGreaterEqual(response["test_case_count"], 1)
+        self.assertEqual(response["project_count"], 1)
+        self.assertEqual(response["run_id"], 999)
+
+    def test_doctor_fails_closed_when_docker_is_unavailable(self):
+        original = sentinel_agent_server.doctor.sandbox_runner.docker_available
+        sentinel_agent_server.doctor.sandbox_runner.docker_available = lambda: False
+        try:
+            payload = sentinel_agent_server.doctor.run_doctor()
+        finally:
+            sentinel_agent_server.doctor.sandbox_runner.docker_available = original
+
+        statuses = {check["name"]: check["status"] for check in payload["checks"]}
+        self.assertEqual(statuses["Docker"], "fail")
+        self.assertEqual(statuses["Scanner image"], "fail")
+        self.assertFalse(payload["ok"])
+
+    def test_dashboard_contains_findings_investigation_controls(self):
+        html = (Path(__file__).resolve().parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="findingsPanel"', html)
+        self.assertIn('id="severityFilter"', html)
+        self.assertIn('id="categoryFilter"', html)
+        self.assertIn('id="readiness"', html)
+        self.assertIn('id="testCasesPanel"', html)
+        self.assertIn("loadDoctor", html)
+        self.assertIn("renderTestCases", html)
+        self.assertIn("loadFindings", html)
+        self.assertIn("inspectRun", html)
+        self.assertIn("Inspect", html)
 
 
 if __name__ == "__main__":

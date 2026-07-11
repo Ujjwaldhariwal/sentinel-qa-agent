@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sentinel-qa-agent"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local AI-assisted QA and security agent with scanner, web QA, history, and service modes."
 requires-python = ">=3.11"
 readme = "README.md"
@@ -25,7 +25,10 @@ sentinel-web-qa = "web_qa:main"
 py-modules = [
   "agent_state",
   "agent_log",
+  "doctor",
   "qa_ai_agent",
+  "qa_test_planner",
+  "sandbox_runner",
   "sentinel_agent_server",
   "sentinel_daemon",
   "sentinel_policy",

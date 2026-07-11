@@ -292,6 +292,42 @@
       display: grid;
       gap: 10px;
     }
+    .testcases {
+      display: grid;
+      gap: 10px;
+    }
+    .testcase-list {
+      display: grid;
+      gap: 8px;
+      max-height: 380px;
+      overflow: auto;
+    }
+    .testcase-row {
+      display: grid;
+      gap: 7px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .testcase-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .testcase-title {
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1.25;
+    }
+    .testcase-copy {
+      color: #344054;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
     .findings-toolbar {
       display: grid;
       grid-template-columns: 140px 170px minmax(0, 1fr);
@@ -377,9 +413,15 @@
       gap: 9px;
     }
     .readiness {
-      padding: 12px 16px 0;
+      padding: 8px 16px 12px;
       display: grid;
       gap: 7px;
+    }
+    .side-note {
+      padding: 6px 16px 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
     }
     .ready-row {
       min-height: 38px;
@@ -604,12 +646,16 @@
         </details>
       </section>
 
-      <aside class="panel" aria-labelledby="historyTitle">
+      <aside class="panel" aria-labelledby="readinessTitle">
         <div class="panel-head">
-          <h2 id="historyTitle">Recent scans</h2>
+          <h2 id="readinessTitle">Local readiness</h2>
           <button class="ghost" id="refresh" type="button">Refresh</button>
         </div>
+        <p class="side-note">Checks whether Sentinel can scan safely on this Mac.</p>
         <div class="readiness" id="readiness"></div>
+        <div class="panel-head">
+          <h2 id="historyTitle">Previous scans</h2>
+        </div>
         <div class="runs" id="runs"></div>
       </aside>
     </div>
@@ -621,6 +667,13 @@
       </div>
       <div class="severity-grid" id="severityGrid"></div>
       <div class="report-links" id="reportLinks"></div>
+      <div class="testcases" id="testCasesPanel" hidden>
+        <div class="panel-head" style="padding:0">
+          <h2>Generated test cases</h2>
+          <span class="muted" id="testCaseCount">0 planned</span>
+        </div>
+        <div class="testcase-list" id="testCaseList"></div>
+      </div>
       <div class="findings" id="findingsPanel" hidden>
         <div class="findings-toolbar">
           <select id="severityFilter" aria-label="Severity filter">
@@ -677,6 +730,9 @@
     const severityGrid = document.querySelector("#severityGrid");
     const reportLinks = document.querySelector("#reportLinks");
     const findingsPanel = document.querySelector("#findingsPanel");
+    const testCasesPanel = document.querySelector("#testCasesPanel");
+    const testCaseCount = document.querySelector("#testCaseCount");
+    const testCaseList = document.querySelector("#testCaseList");
     const severityFilter = document.querySelector("#severityFilter");
     const categoryFilter = document.querySelector("#categoryFilter");
     const findingSearch = document.querySelector("#findingSearch");
@@ -696,6 +752,7 @@
     let browseState = { path: "", parent: null };
     let pollTimer = null;
     let latestFindings = [];
+    let latestTestCases = [];
 
     token.value = localStorage.getItem("sentinelToken") || "";
     root.value = localStorage.getItem("sentinelRoot") || "";
@@ -773,6 +830,7 @@
       const links = [];
       if (result.report_md) links.push(node("a", { href: artifactUrl(result.report_md), target: "_blank", rel: "noreferrer", text: "Markdown report" }));
       if (result.report_json) links.push(node("a", { href: artifactUrl(result.report_json), target: "_blank", rel: "noreferrer", text: "JSON report" }));
+      if (result.test_cases_md) links.push(node("a", { href: artifactUrl(result.test_cases_md), target: "_blank", rel: "noreferrer", text: "Test cases" }));
       if (result.ai_review_md) links.push(node("a", { href: artifactUrl(result.ai_review_md), target: "_blank", rel: "noreferrer", text: "AI review" }));
       if (result.web_qa_md) links.push(node("a", { href: artifactUrl(result.web_qa_md), target: "_blank", rel: "noreferrer", text: "Web QA report" }));
       reportLinks.replaceChildren(...links);
@@ -833,14 +891,36 @@
       findingsList.replaceChildren(...(rows.length ? rows : [node("div", { class: "empty", text: "No matching findings." })]));
     }
 
+    function renderTestCases() {
+      testCasesPanel.hidden = latestTestCases.length === 0;
+      testCaseCount.textContent = `${latestTestCases.length} planned`;
+      const rows = latestTestCases.slice(0, 12).map(testCase =>
+        node("article", { class: "testcase-row" }, [
+          node("div", { class: "testcase-head" }, [
+            node("div", { class: "testcase-title", text: `${testCase.id || "TC"}: ${testCase.title || "Generated test case"}` }),
+            node("span", { class: `badge ${testCase.priority === "critical" ? "high" : testCase.priority || "info"}`, text: testCase.priority || "planned" }),
+          ]),
+          node("div", { class: "finding-location", text: `${testCase.project || "project"} / ${testCase.target || "."}` }),
+          node("div", { class: "testcase-copy", text: testCase.rationale || "" }),
+          node("div", { class: "testcase-copy", text: `Expected: ${testCase.expected_result || "Defined behavior is verified."}` }),
+        ])
+      );
+      testCaseList.replaceChildren(...(rows.length ? rows : [node("div", { class: "empty", text: "No generated test cases." })]));
+    }
+
     async function loadFindings(reportJsonPath) {
       latestFindings = [];
+      latestTestCases = [];
       findingsPanel.hidden = true;
+      testCasesPanel.hidden = true;
       findingsList.replaceChildren();
+      testCaseList.replaceChildren();
       if (!reportJsonPath) return;
       const data = await requestJson(artifactUrl(reportJsonPath), { headers: authHeaders() });
       latestFindings = Array.isArray(data.findings) ? data.findings : [];
+      latestTestCases = Array.isArray(data.test_cases) ? data.test_cases : [];
       renderCategoryOptions(latestFindings);
+      renderTestCases();
       renderFindings();
     }
 
@@ -871,6 +951,9 @@
         const actions = [];
         if (run.report_json) {
           actions.push(node("button", { class: "mini-action", type: "button", text: "Inspect", onclick: () => inspectRun(run) }));
+        }
+        if (run.test_cases_md) {
+          actions.push(node("a", { href: artifactUrl(run.test_cases_md), target: "_blank", rel: "noreferrer", text: "Test cases" }));
         }
         if (run.report_md) {
           actions.push(node("a", { href: artifactUrl(run.report_md), target: "_blank", rel: "noreferrer", text: "Open report" }));
@@ -964,6 +1047,8 @@
       clearInterval(pollTimer);
       renderLinks();
       latestFindings = [];
+      latestTestCases = [];
+      renderTestCases();
       renderFindings();
       scan.disabled = true;
       jobState.textContent = "Queued";

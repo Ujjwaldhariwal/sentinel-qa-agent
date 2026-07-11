@@ -163,6 +163,30 @@ class SentinelQaTests(unittest.TestCase):
         self.assertIn("FastAPI", payload["profiles"][str(project.resolve())]["frameworks"])
         self.assertGreaterEqual(payload["summary"]["severity_counts"]["medium"], 1)
 
+    def test_run_scan_generates_test_case_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            output = project / "report"
+            (project / "package.json").write_text(
+                '{"dependencies":{"react":"latest"},"scripts":{"test":"vitest"}}',
+                encoding="utf-8",
+            )
+            (project / "component.tsx").write_text(
+                "export function Widget(){ return <div /> }\n",
+                encoding="utf-8",
+            )
+
+            result = sentinel_qa.run_scan(project, output_dir=output, workers=1, run_optional_tools=False)
+            payload = json.loads(result["json_path"].read_text(encoding="utf-8"))
+            test_cases_md_exists = result["test_cases_md"].exists()
+            test_cases_json_exists = result["test_cases_json"].exists()
+
+        self.assertGreater(len(result["test_cases"]), 0)
+        self.assertTrue(test_cases_md_exists)
+        self.assertTrue(test_cases_json_exists)
+        self.assertIn("test_cases", payload)
+        self.assertTrue(any(case["kind"] == "frontend-smoke" for case in payload["test_cases"]))
+
     def test_scan_history_records_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "history.sqlite3"
@@ -318,6 +342,9 @@ class SentinelQaTests(unittest.TestCase):
 
         self.assertTrue(response["ok"])
         self.assertIn("severity_counts", response)
+        self.assertIn("test_cases_md", response)
+        self.assertIn("test_cases_json", response)
+        self.assertGreaterEqual(response["test_case_count"], 1)
         self.assertEqual(response["project_count"], 1)
         self.assertEqual(response["run_id"], 999)
 
@@ -341,7 +368,9 @@ class SentinelQaTests(unittest.TestCase):
         self.assertIn('id="severityFilter"', html)
         self.assertIn('id="categoryFilter"', html)
         self.assertIn('id="readiness"', html)
+        self.assertIn('id="testCasesPanel"', html)
         self.assertIn("loadDoctor", html)
+        self.assertIn("renderTestCases", html)
         self.assertIn("loadFindings", html)
         self.assertIn("inspectRun", html)
         self.assertIn("Inspect", html)

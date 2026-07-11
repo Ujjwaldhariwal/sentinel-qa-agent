@@ -45,6 +45,8 @@ SAFE_ARTIFACT_NAMES = {
     "web_crawl.md",
     "web_crawl.json",
     "web_qa_screenshot.png",
+    "test_cases.md",
+    "test_cases.json",
 }
 
 
@@ -372,6 +374,7 @@ def run_scan_request(body: dict) -> dict:
         max_files=int(body.get("max_files") or policy["scan"].get("max_files") or 50_000),
         max_depth=int(body.get("max_depth") or policy["scan"].get("max_depth") or 40),
         max_scan_seconds=int(body.get("max_scan_seconds") or policy["scan"].get("max_scan_seconds") or 300),
+        generate_test_plan=not bool(body.get("skip_test_plan", False)),
     )
     ai_path = None
     status = "completed"
@@ -382,6 +385,9 @@ def run_scan_request(body: dict) -> dict:
         "report_json": str(result["json_path"]),
         "finding_count": len(result["findings"]),
         "project_count": len(result["projects"]),
+        "test_case_count": len(result.get("test_cases") or []),
+        "test_cases_md": str(result["test_cases_md"]),
+        "test_cases_json": str(result["test_cases_json"]),
         "severity_counts": agent_state.severity_counts(result["findings"]),
     }
     if include_ai:

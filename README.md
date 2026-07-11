@@ -72,6 +72,7 @@ Sentinel is designed to become a small personal QA operator: local-first, quiet 
 | **Async Agent API** | Queue scans, poll jobs, fetch run history, read logs, and integrate with a modal, extension, editor, or automation. |
 | **Continuous Watcher** | Watches a folder and scans again after changes. |
 | **Doctor Checks** | Verifies Python, Docker, scanner image, local state, optional AI keys, and Web QA tooling before a user wastes time debugging setup. |
+| **Generated Test Cases** | Builds a QA test-case plan from project signals and findings, then writes `test_cases.md` and `test_cases.json` beside every report. |
 
 ## Quick Start
 
@@ -127,8 +128,12 @@ Reports are written as:
 
 - `report.md` for humans
 - `report.json` for tools and automation
+- `test_cases.md` for generated QA test-case specs
+- `test_cases.json` for tool-readable test-case specs
 
 Reports include severity totals, top-risk next steps, category counts, detected languages/frameworks, test signals, CI signals, and normalized findings.
+
+Generated test cases are currently planned QA specs, not full auto-patches into your app. Existing project test commands still run through the Docker sandbox when optional tools are enabled. Stack-specific executable test generation is the next layer.
 
 ## Sandbox Mode
 
@@ -438,6 +443,7 @@ make self-scan
 - [x] Local readiness doctor
 - [x] Smarter project detection in reports
 - [x] Filterable findings panel
+- [x] Generated QA test-case plan in every report
 - [x] CI and self-scan gate
 - [x] Docker sandbox for optional repo tool execution
 - [x] Prebuilt scanner image with pinned Semgrep/Bandit/pip-audit/npm tooling

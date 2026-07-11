@@ -145,6 +145,13 @@ def get_run(run_id: int, db_path: Path = DEFAULT_DB) -> dict[str, Any] | None:
 def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
     data["severity_counts"] = json.loads(data["severity_counts"])
+    output_dir = Path(data["output_dir"])
+    test_cases_md = output_dir / "test_cases.md"
+    test_cases_json = output_dir / "test_cases.json"
+    if test_cases_md.exists():
+        data["test_cases_md"] = str(test_cases_md)
+    if test_cases_json.exists():
+        data["test_cases_json"] = str(test_cases_json)
     return data
 
 

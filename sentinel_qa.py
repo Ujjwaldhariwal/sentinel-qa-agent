@@ -24,6 +24,8 @@ import tomllib
 from pathlib import Path
 from typing import Any, Iterable
 
+import qa_test_planner
+
 
 DEFAULT_EXCLUDES = {
     ".git",
@@ -48,6 +50,10 @@ DEFAULT_EXCLUDES = {
     "latest-web-qa",
     "sentinel-qa-report",
     "sentinel-web-qa-report",
+    "report.md",
+    "report.json",
+    "test_cases.md",
+    "test_cases.json",
     "state",
 }
 
@@ -765,6 +771,7 @@ def render_markdown(
     findings: list[Finding],
     elapsed: float,
     profiles: dict[str, dict[str, Any]] | None = None,
+    test_cases: list[qa_test_planner.TestCaseSpec] | None = None,
 ) -> str:
     counts = severity_counts(findings)
     summary = build_scan_summary(findings, profiles)
@@ -812,6 +819,31 @@ def render_markdown(
             )
     else:
         lines.append("No project profile signals were generated.")
+    lines.extend(["", "## Generated QA Test Cases", ""])
+    if test_cases:
+        lines.append(
+            "Sentinel generated these test cases from static project signals and findings. Existing project tests are run separately through the sandbox when optional tools are enabled."
+        )
+        lines.append("")
+        for case in test_cases[:12]:
+            lines.extend(
+                [
+                    f"### {case.id}: {case.title}",
+                    "",
+                    f"- Priority: `{case.priority}`",
+                    f"- Type: `{case.kind}`",
+                    f"- Project: `{case.project}`",
+                    f"- Target: `{case.target}`",
+                    f"- Status: `{case.execution_status}`",
+                    f"- Why: {case.rationale}",
+                    "- Steps:",
+                ]
+            )
+            for step in case.steps:
+                lines.append(f"  - {step}")
+            lines.extend([f"- Expected result: {case.expected_result}", ""])
+    else:
+        lines.append("No generated test cases were produced for this scan.")
     lines.extend(["", "## Projects", ""])
     for project in projects:
         lines.append(f"- `{project}`")
@@ -845,6 +877,7 @@ def write_json(
     root: Path,
     elapsed: float,
     profiles: dict[str, dict[str, Any]] | None = None,
+    test_cases: list[qa_test_planner.TestCaseSpec] | None = None,
 ) -> None:
     payload = {
         "root": str(root),
@@ -852,6 +885,7 @@ def write_json(
         "runtime_seconds": elapsed,
         "summary": build_scan_summary(findings, profiles),
         "profiles": profiles or {},
+        "test_cases": [dataclasses.asdict(case) for case in (test_cases or [])],
         "findings": [dataclasses.asdict(finding) for finding in findings],
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -875,6 +909,7 @@ def run_scan(
     max_files: int = 50_000,
     max_depth: int = 40,
     max_scan_seconds: int = 300,
+    generate_test_plan: bool = True,
 ) -> dict:
     root = root.expanduser().resolve()
     if not root.exists():
@@ -932,20 +967,35 @@ def run_scan(
             all_findings.extend(future.result())
 
     elapsed = time.time() - started
+    test_cases: list[qa_test_planner.TestCaseSpec] = []
+    if generate_test_plan:
+        for project in projects:
+            project_findings = [finding for finding in all_findings if finding.project == project.name]
+            test_cases.extend(
+                qa_test_planner.generate_test_cases(
+                    project,
+                    profiles.get(str(project), {}),
+                    project_findings,
+                )
+            )
     output_dir.mkdir(parents=True, exist_ok=True)
     markdown_path = output_dir / "report.md"
     json_path = output_dir / "report.json"
-    markdown_path.write_text(render_markdown(root, projects, all_findings, elapsed, profiles), encoding="utf-8")
-    write_json(json_path, all_findings, projects, root, elapsed, profiles)
+    test_cases_md, test_cases_json = qa_test_planner.write_artifacts(output_dir, test_cases)
+    markdown_path.write_text(render_markdown(root, projects, all_findings, elapsed, profiles, test_cases), encoding="utf-8")
+    write_json(json_path, all_findings, projects, root, elapsed, profiles, test_cases)
 
     return {
         "root": root,
         "projects": projects,
         "profiles": profiles,
+        "test_cases": test_cases,
         "findings": all_findings,
         "elapsed": elapsed,
         "markdown_path": markdown_path.resolve(),
         "json_path": json_path.resolve(),
+        "test_cases_md": test_cases_md,
+        "test_cases_json": test_cases_json,
     }
 
 
@@ -969,6 +1019,7 @@ def parse_args(argv: Iterable[str]) -> argparse.Namespace:
     parser.add_argument("--max-depth", type=int, help="Maximum directory depth to walk.")
     parser.add_argument("--max-file-bytes", type=int, help="Maximum text file size to read.")
     parser.add_argument("--max-scan-seconds", type=int, help="Host-side wall-clock limit for static traversal.")
+    parser.add_argument("--skip-test-plan", action="store_true", help="Skip generated QA test-case planning.")
     parser.add_argument("--include-nested", action="store_true", help="Scan nested projects instead of stopping at first marker.")
     parser.add_argument("--ai-review", action="store_true", help="Ask an LLM to triage the findings.")
     parser.add_argument("--ai-provider", choices=["openai", "anthropic"], default=os.getenv("QA_AGENT_PROVIDER"), help="AI provider for --ai-review.")
@@ -1081,6 +1132,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             max_files=max_files,
             max_depth=max_depth,
             max_scan_seconds=max_scan_seconds,
+            generate_test_plan=not args.skip_test_plan,
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
@@ -1158,8 +1210,10 @@ def main(argv: Iterable[str] | None = None) -> int:
     fail_on = set(policy.get("quality_gate", {}).get("fail_on") or ["critical", "high"])
     critical_or_high = [item for item in result["findings"] if item.severity in fail_on]
     print(f"Scanned {len(result['projects'])} project(s), found {len(result['findings'])} issue(s).")
+    print(f"Generated test cases: {len(result['test_cases'])}")
     print(f"Markdown report: {result['markdown_path']}")
     print(f"JSON report: {result['json_path']}")
+    print(f"Test cases: {result['test_cases_md']}")
     return 1 if critical_or_high else 0
 
 

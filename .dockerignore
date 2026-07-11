@@ -1,0 +1,17 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+reports
+latest-report
+latest-web-qa
+sentinel-qa-report
+sentinel-web-qa-report
+state
+*.sqlite3
+*.jsonl
+report.md
+report.json

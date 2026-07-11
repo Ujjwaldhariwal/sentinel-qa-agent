@@ -26,6 +26,7 @@ py-modules = [
   "agent_state",
   "agent_log",
   "qa_ai_agent",
+  "sandbox_runner",
   "sentinel_agent_server",
   "sentinel_daemon",
   "sentinel_policy",

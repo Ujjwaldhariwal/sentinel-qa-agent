@@ -32,6 +32,19 @@ APP_DIR = Path(__file__).resolve().parent
 EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2)
 SERVICE_CONFIG = settings.load_config()
 SAFE_ARTIFACT_SUFFIXES = {".json", ".md", ".txt", ".log", ".png", ".jpg", ".jpeg", ".webp"}
+SAFE_ARTIFACT_NAMES = {
+    "report.md",
+    "report.json",
+    "ai_review.md",
+    "ai_review.json",
+    "ai_review_input.redacted.json",
+    "ai_review_error.txt",
+    "web_qa.md",
+    "web_qa.json",
+    "web_crawl.md",
+    "web_crawl.json",
+    "web_qa_screenshot.png",
+}
 
 
 class FastLocalHTTPServer(ThreadingHTTPServer):
@@ -190,7 +203,7 @@ class AgentHandler(BaseHTTPRequestHandler):
             return True
         token = SERVICE_CONFIG.get("auth_token") or ""
         if not token:
-            return True
+            return False
         header = self.headers.get("Authorization", "")
         if header == f"Bearer {token}":
             return True
@@ -208,11 +221,9 @@ class AgentHandler(BaseHTTPRequestHandler):
 
     def send_artifact(self, raw_path: str) -> None:
         try:
-            path = safe_local_path(raw_path)
+            path = safe_artifact_path(raw_path)
             if not path.is_file():
                 raise FileNotFoundError(f"Artifact does not exist: {path}")
-            if path.suffix.lower() not in SAFE_ARTIFACT_SUFFIXES:
-                raise ValueError("Only report and image artifacts can be opened.")
             content_type = mimetypes.guess_type(path.name)[0] or "text/plain"
             self.send_file(path, content_type)
         except Exception as exc:
@@ -254,6 +265,15 @@ def safe_local_path(raw_path: str) -> Path:
     home = Path.home().resolve()
     if path != home and home not in path.parents:
         raise ValueError("Path must be inside your home folder.")
+    return path
+
+
+def safe_artifact_path(raw_path: str) -> Path:
+    path = safe_local_path(raw_path)
+    if path.suffix.lower() not in SAFE_ARTIFACT_SUFFIXES:
+        raise ValueError("Only report and image artifacts can be opened.")
+    if path.name not in SAFE_ARTIFACT_NAMES:
+        raise ValueError("Only Sentinel-generated artifact names can be opened.")
     return path
 
 
@@ -306,7 +326,7 @@ def browse_directory(raw_path: str = "") -> dict:
 
 def default_scan_output_dir(root: Path) -> Path:
     stamp = time.strftime("%Y%m%d-%H%M%S")
-    return root / "reports" / f"sentinel-{stamp}"
+    return root / "reports" / f"sentinel-{stamp}-{uuid.uuid4().hex[:8]}"
 
 
 def run_scan_job(job_id: str, body: dict) -> None:
@@ -323,13 +343,16 @@ def run_scan_job(job_id: str, body: dict) -> None:
 
 
 def run_scan_request(body: dict) -> dict:
+    if not body.get("root"):
+        raise ValueError("root is required.")
     root = Path(body["root"]).expanduser().resolve()
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"Project folder does not exist: {root}")
     policy_path = Path(body["policy_path"]).expanduser().resolve() if body.get("policy_path") else None
     policy = sentinel_policy.load_policy(root=root, path=policy_path)
     output_dir = Path(body["output_dir"]).expanduser().resolve() if body.get("output_dir") else default_scan_output_dir(root).resolve()
-    model = body.get("model") or policy["ai"].get("model") or SERVICE_CONFIG.get("model") or qa_ai_agent.DEFAULT_MODEL
+    ai_provider = body.get("ai_provider") or policy["ai"].get("provider") or SERVICE_CONFIG.get("ai_provider") or qa_ai_agent.DEFAULT_PROVIDER
+    model = body.get("model") or policy["ai"].get("model") or SERVICE_CONFIG.get("model") or qa_ai_agent.default_model_for_provider(ai_provider)
     include_ai = bool(body.get("ai_review", policy["ai"].get("enabled") if policy["ai"].get("enabled") is not None else SERVICE_CONFIG.get("ai_review", False)))
     web_url = body.get("web_url") or policy["web"].get("base_url")
     agent_log.log_event("scan_started", root=str(root), output_dir=str(output_dir))
@@ -339,6 +362,13 @@ def run_scan_request(body: dict) -> dict:
         config_path=policy_path,
         workers=body.get("workers") or policy["scan"].get("workers") or SERVICE_CONFIG.get("max_workers"),
         timeout=int(body.get("timeout") or policy["scan"].get("timeout_seconds") or SERVICE_CONFIG.get("scan_timeout_seconds", 90)),
+        allow_network=bool(body.get("allow_network", False)),
+        run_optional_tools=not bool(body.get("skip_optional_tools", False)),
+        sandbox_max_output_bytes=int(body.get("sandbox_max_output_bytes") or 1_000_000),
+        max_file_bytes=int(body.get("max_file_bytes") or policy["scan"].get("max_file_bytes") or 2_000_000),
+        max_files=int(body.get("max_files") or policy["scan"].get("max_files") or 50_000),
+        max_depth=int(body.get("max_depth") or policy["scan"].get("max_depth") or 40),
+        max_scan_seconds=int(body.get("max_scan_seconds") or policy["scan"].get("max_scan_seconds") or 300),
     )
     ai_path = None
     status = "completed"
@@ -359,6 +389,7 @@ def run_scan_request(body: dict) -> dict:
                 result["projects"],
                 result["findings"],
                 model=model,
+                provider=ai_provider,
             )
             ai_path = output_dir / "ai_review.md"
             response["ai_review_md"] = str(ai_path)
@@ -435,6 +466,8 @@ def main() -> int:
     print(f"Sentinel QA Agent listening on http://{host}:{port}", flush=True)
     if SERVICE_CONFIG.get("require_token") and SERVICE_CONFIG.get("auth_token"):
         print("Token auth enabled. Send Authorization: Bearer <token>.", flush=True)
+    elif SERVICE_CONFIG.get("require_token"):
+        print("Token auth enabled but no token is configured. Protected API calls will be rejected; run --init-config first.", flush=True)
     server.serve_forever()
     return 0
 

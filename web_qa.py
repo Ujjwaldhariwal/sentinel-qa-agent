@@ -357,7 +357,7 @@ def render_markdown(result: dict[str, Any]) -> str:
         "",
         "## Checks",
         "",
-        f"- Page loaded: {'pass' if result.get('http_status') is None or result.get('http_status', 0) < 400 else 'fail'}",
+        f"- Page loaded: {'pass' if result.get('http_status') is not None and result.get('http_status', 0) < 400 else 'fail'}",
         f"- Not blank: {'pass' if not result.get('blank') else 'fail'}",
         f"- Console/page errors: {'pass' if not result.get('errors') else 'fail'}",
         f"- Network warnings: {'pass' if not result.get('network_failures') and not result.get('bad_responses') else 'warn'}",

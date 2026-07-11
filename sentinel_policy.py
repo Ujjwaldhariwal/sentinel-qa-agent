@@ -16,10 +16,15 @@ DEFAULT_POLICY: dict[str, Any] = {
         "exclude_dirs": [],
         "exclude_globs": [],
         "timeout_seconds": None,
-        "workers": None
+        "workers": None,
+        "max_files": 50000,
+        "max_depth": 40,
+        "max_file_bytes": 2000000,
+        "max_scan_seconds": 300
     },
     "ai": {
         "enabled": None,
+        "provider": None,
         "model": None
     },
     "web": {

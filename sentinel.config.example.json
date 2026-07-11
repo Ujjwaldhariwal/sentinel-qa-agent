@@ -8,5 +8,6 @@
   "max_workers": null,
   "scan_timeout_seconds": 90,
   "ai_review": false,
+  "ai_provider": "openai",
   "model": "gpt-5.4-mini"
 }

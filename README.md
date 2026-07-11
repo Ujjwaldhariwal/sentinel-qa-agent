@@ -4,7 +4,7 @@
 
 **A local AI-powered QA command center for code, security, and web-app smoke testing.**
 
-Run it as a CLI, a lightweight local dashboard, an async service, or a background watcher. Sentinel helps a solo builder or small team scan projects quickly, catch obvious flaws early, and turn findings into focused fixes.
+Run it as a CLI, a lightweight local dashboard, an async local service, or a background watcher. Sentinel helps a solo builder scan downloaded repositories without silently executing their code on the host.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Ujjwaldhariwal/sentinel-qa-agent/ci.yml?branch=agent%2Fqa-ui-hardening&style=for-the-badge&label=CI)](https://github.com/Ujjwaldhariwal/sentinel-qa-agent/actions)
 [![Version](https://img.shields.io/badge/version-0.4.0--alpha-111827?style=for-the-badge)](#version)
@@ -64,17 +64,20 @@ Sentinel is designed to become a small personal QA operator: local-first, quiet 
 | Area | What Sentinel Does Today |
 | --- | --- |
 | **Static QA** | Scans source files for risky patterns, leaked credentials, weak hashes, browser XSS sinks, debug statements, dangerous execution, and suspicious SQL. |
-| **Dependency Checks** | Uses `npm audit`, `pip-audit`, `bandit`, `semgrep`, `gosec`, and `cargo audit` when those tools exist locally. |
+| **Dependency Checks** | Uses `npm audit`, `pip-audit`, `bandit`, `semgrep`, `gosec`, and `cargo audit` when those tools exist locally, routed through Docker sandboxing by default. |
 | **Web QA** | Uses Playwright to load pages, detect blank screens, collect console/page errors, flag failed requests, capture screenshots, and test configured clicks. |
 | **Route Discovery** | Finds common Next.js, Pages Router, and static HTML routes from project structure. |
-| **AI Review** | Optional OpenAI-powered triage that explains impact, false-positive likelihood, likely fix, and missing tests. |
+| **AI Review** | Optional provider-key triage that reviews redacted findings and treats repository text as untrusted evidence. |
 | **Local Dashboard** | Minimal UI for selecting a project folder, running QA, viewing severity counts, and opening reports. |
 | **Async Agent API** | Queue scans, poll jobs, fetch run history, read logs, and integrate with a modal, extension, editor, or automation. |
 | **Continuous Watcher** | Watches a folder and scans again after changes. |
 
 ## Quick Start
 
-Requirements: Python 3.11 or newer.
+Requirements:
+
+- Python 3.11 or newer
+- Docker Desktop for sandboxed optional tools and project test runners
 
 ```bash
 git clone https://github.com/Ujjwaldhariwal/sentinel-qa-agent.git
@@ -83,12 +86,23 @@ cd sentinel-qa-agent
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
+docker build -f docker/sentinel-scanner.Dockerfile -t sentinel-qa-scanner:latest .
 ```
+
+Sentinel uses `--pull never` for sandbox containers. If this image is missing, sandboxed scans fail closed instead of pulling an unexpected image.
 
 Run a basic project scan:
 
 ```bash
 sentinel-qa /path/to/project --output-dir ./sentinel-report
+```
+
+Run only deterministic static checks without ecosystem tools:
+
+```bash
+sentinel-qa /path/to/project \
+  --skip-optional-tools \
+  --output-dir ./sentinel-report
 ```
 
 Run a scan directly from the repository without installing:
@@ -101,6 +115,53 @@ Reports are written as:
 
 - `report.md` for humans
 - `report.json` for tools and automation
+
+## Sandbox Mode
+
+Sentinel treats downloaded repositories as untrusted. Optional ecosystem commands that touch repo content run through `sandbox_runner.py` in ephemeral Docker containers:
+
+- one disposable container per tool command
+- `--network none` by default
+- read-only root filesystem
+- repository mounted read-only
+- writable `/tmp` and dedicated output mount only
+- non-root user
+- Linux capabilities dropped
+- CPU, memory, memory-swap, and process-count limits
+- host-side watchdog that kills overlong containers
+- no host environment or AI provider key passed into the container
+
+Network access is opt-in:
+
+```bash
+sentinel-qa /path/to/project --allow-network
+```
+
+Default offline sandbox mode skips network-dependent audits such as `npm audit`, `pip-audit`, registry-backed Semgrep rules, and `cargo audit`. Local checks such as `npm test`, `bandit`, `go test`, and `cargo test` still run in containers when the matching project files exist.
+
+Running repo tools directly on the host requires an explicit double opt-out:
+
+```bash
+sentinel-qa /path/to/project --no-sandbox --confirm-no-sandbox
+```
+
+That mode prints a warning every run. Use it only when you trust the repository.
+
+Host-side static traversal is also bounded:
+
+- max files per discovery/scan phase: `50000`
+- max directory depth: `40`
+- max text file bytes read: `2000000`
+- max static traversal time: `300` seconds
+
+Tune these only for repositories you trust:
+
+```bash
+sentinel-qa /path/to/project \
+  --max-files 100000 \
+  --max-depth 60 \
+  --max-scan-seconds 600
+```
 
 ## Dashboard Mode
 
@@ -130,12 +191,27 @@ The dashboard is built for a simple flow:
 
 AI review is opt-in.
 
+OpenAI:
+
 ```bash
 export OPENAI_API_KEY="your_api_key"
 
 sentinel-qa /path/to/project \
   --ai-review \
+  --ai-provider openai \
   --model gpt-5.4-mini \
+  --output-dir ./sentinel-report
+```
+
+Anthropic:
+
+```bash
+export ANTHROPIC_API_KEY="your_api_key"
+
+sentinel-qa /path/to/project \
+  --ai-review \
+  --ai-provider anthropic \
+  --model claude-3-5-sonnet-latest \
   --output-dir ./sentinel-report
 ```
 
@@ -145,6 +221,8 @@ AI output is written to:
 - `ai_review.json`
 
 Sentinel redacts secret-like values before AI review. The LLM sees normalized findings and limited evidence, not a blind dump of your whole repository.
+
+Repository snippets, comments, README text, and config values are treated as untrusted content in the AI prompt. Prompt-injection attempts can still appear inside the evidence sent for review, but the system prompt tells the model not to follow repository-provided instructions, not to weaken security recommendations, and never to ask for or expose local secrets. AI review now fails closed if the model response is not valid JSON with the expected review fields.
 
 ## Web QA
 
@@ -233,7 +311,11 @@ Add `sentinel.policy.json` to a project root:
 {
   "scan": {
     "exclude_dirs": [".generated"],
-    "exclude_globs": ["fixtures/**"]
+    "exclude_globs": ["fixtures/**"],
+    "max_files": 50000,
+    "max_depth": 40,
+    "max_file_bytes": 2000000,
+    "max_scan_seconds": 300
   },
   "ai": {
     "enabled": true,
@@ -259,7 +341,13 @@ See:
 ## Security Model
 
 - Local-first by default.
+- Not a hosted multi-tenant service.
+- Users bring their own AI provider key.
+- Optional repo code execution is Docker-sandboxed by default.
+- Docker containers do not receive `OPENAI_API_KEY`, Anthropic keys, or other host environment variables.
+- Sandboxed containers run with no network unless `--allow-network` is passed.
 - Token auth enabled by default for the service config.
+- Token-protected service routes fail closed if token auth is enabled but no token is configured.
 - AI review disabled unless explicitly enabled.
 - Secret-like values are redacted before AI calls.
 - Reports, job history, and logs stay local unless you move them.
@@ -278,30 +366,38 @@ This is where Sentinel can become genuinely strong.
 | **PR Copilot** | Comment directly on GitHub PRs with findings, evidence, suggested patches, and test commands. |
 | **Replayable Web Journeys** | Record user journeys once, replay them after every change, and compare screenshots, console logs, route behavior, and network health. |
 | **Local Extension** | A tiny browser or editor extension that sends the current project/page to the local Sentinel service. |
-| **Sandboxed Workers** | Run project scans inside isolated Docker workers so untrusted repositories cannot touch the host. |
+| **Sandboxed Workers** | Expand Docker isolation from optional tool commands into a fuller scanner execution profile with prebuilt scanner images. |
 | **Auto-Fix Mode** | Generate patches for low-risk issues, run tests, and open a PR with evidence. |
 | **Risk Scoreboard** | Track risk by project over time: critical open issues, flaky routes, dependency risk, missing tests, and CI health. |
-| **Team Dashboard** | Central registry for multiple devices and projects with roles, audit logs, and scheduled scans. |
+| **Local Fleet View** | Optional local index across your own cloned repos, devices, and reports without requiring a hosted control plane. |
 | **Agent Marketplace** | Plugin hooks for custom scanners: Stripe, Supabase, Next.js, Django, FastAPI, mobile apps, infra, and API security. |
 
 ## Development
 
+Common workflow:
+
+```bash
+make scanner-image
+make test
+make smoke
+```
+
 Run tests:
 
 ```bash
-python3 -m unittest discover -s tests -v
+make test
 ```
 
 Compile modules:
 
 ```bash
-python3 -m py_compile *.py
+make compile
 ```
 
 Self-scan:
 
 ```bash
-python3 sentinel_qa.py . --output-dir ./reports/self-scan --workers 2
+make self-scan
 ```
 
 ## Commands
@@ -323,13 +419,14 @@ python3 sentinel_qa.py . --output-dir ./reports/self-scan --workers 2
 - [x] Minimal dashboard
 - [x] Folder browser
 - [x] CI and self-scan gate
-- [ ] Docker worker isolation
+- [x] Docker sandbox for optional repo tool execution
+- [x] Prebuilt scanner image with pinned Semgrep/Bandit/pip-audit/npm tooling
 - [ ] GitHub PR annotations
 - [ ] Browser extension client
 - [ ] Editor extension client
 - [ ] Replayable web journeys
 - [ ] Auto-fix branch mode
-- [ ] Multi-device hosted control plane
+- [ ] Local multi-repo index and sync-friendly report format
 
 ## License
 

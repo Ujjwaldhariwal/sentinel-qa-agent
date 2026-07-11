@@ -14,6 +14,8 @@ env/
 .env.*
 !.env.example
 sentinel.config.json
+report.md
+report.json
 
 build/
 dist/
@@ -23,6 +25,7 @@ htmlcov/
 sentinel-qa-report/
 sentinel-web-qa-report/
 sentinel-qa-runs/
+.sentinel-sandbox-out/
 latest-report/
 latest-web-qa/
 reports/

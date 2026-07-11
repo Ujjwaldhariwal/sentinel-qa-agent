@@ -263,7 +263,8 @@
       flex-wrap: wrap;
       gap: 8px;
     }
-    .report-links a {
+    .report-links a,
+    .mini-action {
       min-height: 34px;
       display: inline-flex;
       align-items: center;
@@ -275,6 +276,87 @@
       font-size: 12px;
       font-weight: 800;
       text-decoration: none;
+    }
+    .mini-action {
+      color: #fff;
+      background: var(--blue);
+    }
+    .mini-action:hover { background: var(--blue-dark); }
+    .row-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      align-items: center;
+    }
+    .findings {
+      display: grid;
+      gap: 10px;
+    }
+    .findings-toolbar {
+      display: grid;
+      grid-template-columns: 140px 170px minmax(0, 1fr);
+      gap: 8px;
+    }
+    .findings-list {
+      display: grid;
+      gap: 8px;
+      max-height: 520px;
+      overflow: auto;
+      padding-right: 2px;
+    }
+    .finding-row {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+    .finding-meta {
+      display: grid;
+      align-content: start;
+      gap: 6px;
+    }
+    .badge {
+      width: fit-content;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .badge.critical, .badge.high { color: #991b1b; background: #fee2e2; }
+    .badge.medium { color: #92400e; background: #fef3c7; }
+    .badge.low { color: #166534; background: #dcfce7; }
+    .badge.info { color: #334155; background: #e2e8f0; }
+    .finding-body {
+      min-width: 0;
+      display: grid;
+      gap: 5px;
+    }
+    .finding-title {
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1.25;
+    }
+    .finding-location {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      overflow-wrap: anywhere;
+    }
+    .finding-detail {
+      color: #344054;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .finding-recommendation {
+      color: #4b5563;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
     }
     .log {
       min-height: 72px;
@@ -402,6 +484,8 @@
       .grid { grid-template-columns: 1fr; }
       .advanced { grid-template-columns: 1fr; }
       .severity-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .findings-toolbar { grid-template-columns: 1fr; }
+      .finding-row { grid-template-columns: 1fr; }
       .path-control { grid-template-columns: 1fr; }
       .topbar { align-items: flex-start; flex-direction: column; }
     }
@@ -495,6 +579,23 @@
       </div>
       <div class="severity-grid" id="severityGrid"></div>
       <div class="report-links" id="reportLinks"></div>
+      <div class="findings" id="findingsPanel" hidden>
+        <div class="findings-toolbar">
+          <select id="severityFilter" aria-label="Severity filter">
+            <option value="all">All severities</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+            <option value="info">Info</option>
+          </select>
+          <select id="categoryFilter" aria-label="Category filter">
+            <option value="all">All categories</option>
+          </select>
+          <input id="findingSearch" placeholder="Search findings" autocomplete="off">
+        </div>
+        <div class="findings-list" id="findingsList"></div>
+      </div>
       <pre class="log" id="status">Ready.</pre>
     </section>
   </div>
@@ -532,6 +633,11 @@
     const serviceState = document.querySelector("#serviceState");
     const severityGrid = document.querySelector("#severityGrid");
     const reportLinks = document.querySelector("#reportLinks");
+    const findingsPanel = document.querySelector("#findingsPanel");
+    const severityFilter = document.querySelector("#severityFilter");
+    const categoryFilter = document.querySelector("#categoryFilter");
+    const findingSearch = document.querySelector("#findingSearch");
+    const findingsList = document.querySelector("#findingsList");
     const folderDialog = document.querySelector("#folderDialog");
     const dialogTitle = document.querySelector("#dialogTitle");
     const closeDialog = document.querySelector("#closeDialog");
@@ -546,6 +652,7 @@
     let browseTarget = "root";
     let browseState = { path: "", parent: null };
     let pollTimer = null;
+    let latestFindings = [];
 
     token.value = localStorage.getItem("sentinelToken") || "";
     root.value = localStorage.getItem("sentinelRoot") || "";
@@ -628,6 +735,85 @@
       reportLinks.replaceChildren(...links);
     }
 
+    function findingText(finding) {
+      return [
+        finding.severity,
+        finding.category,
+        finding.project,
+        finding.path,
+        finding.title,
+        finding.detail,
+        finding.recommendation,
+      ].filter(Boolean).join(" ").toLowerCase();
+    }
+
+    function findingLocation(finding) {
+      const path = finding.path || ".";
+      return finding.line ? `${path}:${finding.line}` : path;
+    }
+
+    function renderCategoryOptions(findings) {
+      const current = categoryFilter.value || "all";
+      const categories = [...new Set(findings.map(item => item.category).filter(Boolean))].sort();
+      categoryFilter.replaceChildren(
+        node("option", { value: "all", text: "All categories" }),
+        ...categories.map(category => node("option", { value: category, text: category }))
+      );
+      categoryFilter.value = categories.includes(current) ? current : "all";
+    }
+
+    function renderFindings() {
+      const severity = severityFilter.value;
+      const category = categoryFilter.value;
+      const search = findingSearch.value.trim().toLowerCase();
+      const visible = latestFindings.filter(finding => {
+        if (severity !== "all" && finding.severity !== severity) return false;
+        if (category !== "all" && finding.category !== category) return false;
+        if (search && !findingText(finding).includes(search)) return false;
+        return true;
+      });
+      const rows = visible.map(finding =>
+        node("article", { class: "finding-row" }, [
+          node("div", { class: "finding-meta" }, [
+            node("span", { class: `badge ${finding.severity || "info"}`, text: finding.severity || "info" }),
+            node("span", { class: "chip", text: finding.category || "uncategorized" }),
+          ]),
+          node("div", { class: "finding-body" }, [
+            node("div", { class: "finding-title", text: finding.title || "Finding" }),
+            node("div", { class: "finding-location", text: `${finding.project || "project"} / ${findingLocation(finding)}` }),
+            node("div", { class: "finding-detail", text: finding.detail || "No detail." }),
+            node("div", { class: "finding-recommendation", text: finding.recommendation || "No recommendation." }),
+          ]),
+        ])
+      );
+      findingsPanel.hidden = latestFindings.length === 0;
+      findingsList.replaceChildren(...(rows.length ? rows : [node("div", { class: "empty", text: "No matching findings." })]));
+    }
+
+    async function loadFindings(reportJsonPath) {
+      latestFindings = [];
+      findingsPanel.hidden = true;
+      findingsList.replaceChildren();
+      if (!reportJsonPath) return;
+      const data = await requestJson(artifactUrl(reportJsonPath), { headers: authHeaders() });
+      latestFindings = Array.isArray(data.findings) ? data.findings : [];
+      renderCategoryOptions(latestFindings);
+      renderFindings();
+    }
+
+    async function inspectRun(run) {
+      jobState.textContent = `Run #${run.id}`;
+      renderSeverity(run.severity_counts || {});
+      renderLinks(run);
+      setStatus(`Loaded run #${run.id}.`, {
+        status: run.status,
+        root: run.root,
+        finding_count: run.finding_count,
+        report_json: run.report_json,
+      });
+      await loadFindings(run.report_json).catch(error => setStatus(String(error)));
+    }
+
     async function loadRuns() {
       const data = await requestJson("/runs?limit=8", { headers: authHeaders() });
       const rows = (data.runs || []).map(run => {
@@ -639,9 +825,16 @@
           node("span", { class: "chip low", text: `L ${counts.low || 0}` }),
           node("span", { class: "chip", text: `${run.finding_count || 0} total` }),
         ]);
-        const report = run.report_md
-          ? node("a", { href: artifactUrl(run.report_md), target: "_blank", rel: "noreferrer", text: "Open report" })
-          : node("span", { class: "muted", text: "No report" });
+        const actions = [];
+        if (run.report_json) {
+          actions.push(node("button", { class: "mini-action", type: "button", text: "Inspect", onclick: () => inspectRun(run) }));
+        }
+        if (run.report_md) {
+          actions.push(node("a", { href: artifactUrl(run.report_md), target: "_blank", rel: "noreferrer", text: "Open report" }));
+        }
+        if (!actions.length) {
+          actions.push(node("span", { class: "muted", text: "No report" }));
+        }
         return node("article", { class: "run-row" }, [
           node("div", { class: "run-title" }, [
             node("span", { text: `#${run.id} ${run.status}` }),
@@ -649,7 +842,7 @@
           ]),
           chips,
           node("div", { class: "muted", text: run.root || "" }),
-          report,
+          node("div", { class: "row-actions" }, actions),
         ]);
       });
       runs.replaceChildren(...(rows.length ? rows : [node("div", { class: "empty", text: "No scans yet." })]));
@@ -693,6 +886,7 @@
         if (job.result) {
           renderSeverity(job.result.severity_counts || {});
           renderLinks(job.result);
+          await loadFindings(job.result.report_json).catch(error => setStatus(String(error)));
         }
         await loadRuns();
       }
@@ -707,6 +901,8 @@
       localStorage.setItem("sentinelOutput", output.value.trim());
       clearInterval(pollTimer);
       renderLinks();
+      latestFindings = [];
+      renderFindings();
       scan.disabled = true;
       jobState.textContent = "Queued";
       setStatus("Starting scan...");
@@ -728,6 +924,7 @@
           jobState.textContent = result.status || "Finished";
           setStatus("Web QA finished.", result);
           renderLinks(result);
+          await loadFindings(result.report_json).catch(() => {});
           scan.disabled = false;
           return;
         }
@@ -760,6 +957,9 @@
     });
 
     refresh.addEventListener("click", () => loadRuns().catch(error => setStatus(String(error))));
+    severityFilter.addEventListener("change", renderFindings);
+    categoryFilter.addEventListener("change", renderFindings);
+    findingSearch.addEventListener("input", renderFindings);
     browseRoot.addEventListener("click", () => openBrowse("root").catch(error => setStatus(String(error))));
     browseOutput.addEventListener("click", () => openBrowse("output").catch(error => setStatus(String(error))));
     closeDialog.addEventListener("click", () => folderDialog.close());

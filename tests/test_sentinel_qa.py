@@ -88,7 +88,7 @@ class SentinelQaTests(unittest.TestCase):
             reports.mkdir()
             (reports / "report.md").write_text("innerHTML\n", encoding="utf-8")  # sentinel-qa: ignore
 
-            result = sentinel_qa.run_scan(project, output_dir=project / "out", workers=1)
+            result = sentinel_qa.run_scan(project, output_dir=project / "out", workers=1, run_optional_tools=False)
 
         self.assertFalse(any(finding.path.startswith("reports/") for finding in result["findings"]))
 
@@ -120,7 +120,7 @@ class SentinelQaTests(unittest.TestCase):
             project.mkdir()
             (project / "package.json").write_text('{"scripts":{}}\n', encoding="utf-8")
 
-            result = sentinel_qa.run_scan(project, output_dir=output, workers=1)
+            result = sentinel_qa.run_scan(project, output_dir=output, workers=1, run_optional_tools=False)
             markdown_exists = result["markdown_path"].exists()
             json_exists = result["json_path"].exists()
 
@@ -274,6 +274,7 @@ class SentinelQaTests(unittest.TestCase):
                         "root": str(project),
                         "output_dir": str(project / "reports" / "smoke"),
                         "ai_review": False,
+                        "skip_optional_tools": True,
                     }
                 )
             finally:
@@ -283,6 +284,16 @@ class SentinelQaTests(unittest.TestCase):
         self.assertIn("severity_counts", response)
         self.assertEqual(response["project_count"], 1)
         self.assertEqual(response["run_id"], 999)
+
+    def test_dashboard_contains_findings_investigation_controls(self):
+        html = (Path(__file__).resolve().parents[1] / "ui" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="findingsPanel"', html)
+        self.assertIn('id="severityFilter"', html)
+        self.assertIn('id="categoryFilter"', html)
+        self.assertIn("loadFindings", html)
+        self.assertIn("inspectRun", html)
+        self.assertIn("Inspect", html)
 
 
 if __name__ == "__main__":

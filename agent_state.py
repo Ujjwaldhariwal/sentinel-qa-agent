@@ -223,6 +223,14 @@ def list_jobs(limit: int = 50, db_path: Path = DEFAULT_DB) -> list[dict[str, Any
 
 def job_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     data = dict(row)
-    data["payload"] = json.loads(data["payload"]) if data.get("payload") else None
-    data["result"] = json.loads(data["result"]) if data.get("result") else None
+    try:
+        data["payload"] = json.loads(data["payload"]) if data.get("payload") else None
+    except json.JSONDecodeError:
+        data["payload"] = None
+        data["error"] = data.get("error") or "Stored job payload is corrupt JSON."
+    try:
+        data["result"] = json.loads(data["result"]) if data.get("result") else None
+    except json.JSONDecodeError:
+        data["result"] = None
+        data["error"] = data.get("error") or "Stored job result is corrupt JSON."
     return data

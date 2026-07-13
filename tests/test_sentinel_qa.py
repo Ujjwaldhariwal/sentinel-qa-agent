@@ -73,6 +73,21 @@ class SentinelQaTests(unittest.TestCase):
         self.assertTrue(markdown_exists)
         self.assertTrue(json_exists)
 
+    def test_include_nested_discovers_child_projects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            child = root / "packages" / "app"
+            child.mkdir(parents=True)
+            (root / "package.json").write_text("{}\n", encoding="utf-8")
+            (child / "package.json").write_text("{}\n", encoding="utf-8")
+
+            shallow = sentinel_qa.discover_projects(root, set(), [], include_nested=False)
+            nested = sentinel_qa.discover_projects(root, set(), [], include_nested=True)
+
+        self.assertEqual(shallow, [root])
+        self.assertIn(root, nested)
+        self.assertIn(child, nested)
+
     def test_scan_history_records_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "history.sqlite3"

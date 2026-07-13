@@ -207,16 +207,21 @@
     async function loadRuns() {
       const response = await fetch("/runs?limit=8", { headers: authHeaders() });
       const data = await response.json();
-      runs.innerHTML = "";
+      runs.textContent = "";
       for (const run of data.runs || []) {
         const item = document.createElement("li");
         const date = new Date(run.finished_at * 1000).toLocaleString();
-        item.innerHTML = `
-          <strong>#${run.id} ${run.status}</strong>
-          <span>${run.finding_count} finding(s), ${run.project_count} project(s)</span>
-          <span class="muted">${date}</span>
-          <span class="muted">${run.report_md}</span>
-        `;
+        const title = document.createElement("strong");
+        title.textContent = `#${run.id} ${run.status}`;
+        const summary = document.createElement("span");
+        summary.textContent = `${run.finding_count} finding(s), ${run.project_count} project(s)`;
+        const timestamp = document.createElement("span");
+        timestamp.className = "muted";
+        timestamp.textContent = date;
+        const report = document.createElement("span");
+        report.className = "muted";
+        report.textContent = run.report_md;
+        item.append(title, summary, timestamp, report);
         runs.appendChild(item);
       }
     }

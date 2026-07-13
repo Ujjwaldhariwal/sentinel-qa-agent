@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import shlex
 import shutil
 import subprocess
 import tempfile
@@ -17,6 +16,13 @@ from urllib.parse import urljoin, urlparse
 
 def playwright_available() -> bool:
     return shutil.which("node") is not None and shutil.which("npx") is not None
+
+
+def executable_path(name: str) -> str:
+    path = shutil.which(name)
+    if not path:
+        raise FileNotFoundError(f"{name} executable was not found on PATH.")
+    return path
 
 
 def run_web_qa(
@@ -59,13 +65,14 @@ def run_web_qa(
         }
     )
     command = [
-        "npx",
+        executable_path("npx"),
         "--yes",
         "-p",
         "playwright",
-        "-c",
-        "NODE_PATH=$(dirname $(dirname $(command -v playwright))) "
-        f"node {shlex.quote(str(script_path))} {shlex.quote(payload)}",
+        "--",
+        "node",
+        str(script_path),
+        payload,
     ]
     started = time.time()
     try:
@@ -74,7 +81,7 @@ def run_web_qa(
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            timeout=max(20, timeout_ms // 1000 + 45),
+            timeout=max(180, timeout_ms // 1000 + 120),
             check=False,
         )
         result = parse_node_result(completed.stdout, completed.stderr, completed.returncode)
@@ -84,6 +91,15 @@ def run_web_qa(
             "status": "timeout",
             "url": url,
             "errors": [f"Web QA timed out: {exc}"],
+            "warnings": [],
+            "screenshot": None,
+        }
+    except OSError as exc:
+        result = {
+            "ok": False,
+            "status": "launch_failed",
+            "url": url,
+            "errors": [f"Web QA launcher failed: {exc}"],
             "warnings": [],
             "screenshot": None,
         }
@@ -214,7 +230,28 @@ def dynamic_segment(part: str) -> str:
 def build_playwright_script() -> str:
     return textwrap.dedent(
         """
-        const { chromium } = require('playwright');
+        const path = require('path');
+
+        function loadPlaywright() {
+          const failures = [];
+          const entries = (process.env.PATH || '').split(path.delimiter);
+          for (const entry of entries) {
+            if (!entry.replace(/\\\\/g, '/').endsWith('/node_modules/.bin')) continue;
+            try {
+              return require(path.resolve(entry, '..', 'playwright'));
+            } catch (error) {
+              failures.push(error.message);
+            }
+          }
+          try {
+            return require('playwright');
+          } catch (error) {
+            failures.push(error.message);
+          }
+          throw new Error(`Unable to load Playwright module: ${failures.join('; ')}`);
+        }
+
+        const { chromium } = loadPlaywright();
 
         (async () => {
         const input = JSON.parse(process.argv[2]);

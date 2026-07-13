@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 import time
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -85,7 +86,7 @@ def record_scan(
     db_path: Path = DEFAULT_DB,
 ) -> int:
     now = time.time()
-    with connect(db_path) as connection:
+    with closing(connect(db_path)) as connection:
         cursor = connection.execute(
             """
             INSERT INTO scan_runs (
@@ -114,7 +115,7 @@ def record_scan(
 
 
 def list_runs(limit: int = 20, db_path: Path = DEFAULT_DB) -> list[dict[str, Any]]:
-    with connect(db_path) as connection:
+    with closing(connect(db_path)) as connection:
         rows = connection.execute(
             """
             SELECT id, started_at, finished_at, root, output_dir, report_md, report_json,
@@ -129,7 +130,7 @@ def list_runs(limit: int = 20, db_path: Path = DEFAULT_DB) -> list[dict[str, Any
 
 
 def get_run(run_id: int, db_path: Path = DEFAULT_DB) -> dict[str, Any] | None:
-    with connect(db_path) as connection:
+    with closing(connect(db_path)) as connection:
         row = connection.execute(
             """
             SELECT id, started_at, finished_at, root, output_dir, report_md, report_json,
@@ -150,7 +151,7 @@ def row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
 
 def create_job(job_id: str, kind: str, payload: dict[str, Any], db_path: Path = DEFAULT_DB) -> None:
     now = time.time()
-    with connect(db_path) as connection:
+    with closing(connect(db_path)) as connection:
         connection.execute(
             """
             INSERT INTO jobs (id, kind, status, created_at, started_at, finished_at, payload, result, error)
@@ -186,13 +187,13 @@ def update_job(
         updates.append("error = ?")
         values.append(error)
     values.append(job_id)
-    with connect(db_path) as connection:
+    with closing(connect(db_path)) as connection:
         connection.execute(f"UPDATE jobs SET {', '.join(updates)} WHERE id = ?", values)
         connection.commit()
 
 
 def get_job(job_id: str, db_path: Path = DEFAULT_DB) -> dict[str, Any] | None:
-    with connect(db_path) as connection:
+    with closing(connect(db_path)) as connection:
         row = connection.execute(
             """
             SELECT id, kind, status, created_at, started_at, finished_at, payload, result, error
@@ -205,7 +206,7 @@ def get_job(job_id: str, db_path: Path = DEFAULT_DB) -> dict[str, Any] | None:
 
 
 def list_jobs(limit: int = 50, db_path: Path = DEFAULT_DB) -> list[dict[str, Any]]:
-    with connect(db_path) as connection:
+    with closing(connect(db_path)) as connection:
         rows = connection.execute(
             """
             SELECT id, kind, status, created_at, started_at, finished_at, payload, result, error

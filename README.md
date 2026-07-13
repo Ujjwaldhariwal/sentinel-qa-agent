@@ -8,7 +8,7 @@ Scan source code, dependencies, tests, and running web apps from one quiet CLI o
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
-[![Tests: 11 passing](https://img.shields.io/badge/Tests-11_passing-22C55E?style=flat-square)](#development)
+[![CI](https://github.com/Ujjwaldhariwal/sentinel-qa-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Ujjwaldhariwal/sentinel-qa-agent/actions/workflows/ci.yml)
 [![Status: Alpha](https://img.shields.io/badge/Status-Alpha-F59E0B?style=flat-square)](#roadmap)
 
 </div>
@@ -50,7 +50,7 @@ Requirements: Python 3.11 or newer.
 
 ```bash
 git clone <your-repository-url>
-cd qa-agent
+cd sentinel-qa-agent
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -184,7 +184,7 @@ Add `sentinel.policy.json` to a project root to keep its QA rules versioned with
     "enabled": true
   },
   "web": {
-    "url": "http://localhost:3000",
+    "base_url": "http://localhost:3000",
     "routes": ["/", "/login"],
     "discover_routes": true,
     "viewport": "desktop"

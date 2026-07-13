@@ -160,7 +160,12 @@ def is_text_file(path: Path, max_bytes: int = 2_000_000) -> bool:
         return False
 
 
-def discover_projects(root: Path, excludes: set[str], globs: list[str]) -> list[Path]:
+def discover_projects(
+    root: Path,
+    excludes: set[str],
+    globs: list[str],
+    include_nested: bool = False,
+) -> list[Path]:
     markers = {
         "package.json",
         "pyproject.toml",
@@ -184,7 +189,8 @@ def discover_projects(root: Path, excludes: set[str], globs: list[str]) -> list[
         ]
         if any(marker in filenames or (current / marker).is_dir() for marker in markers):
             projects.add(current)
-            dirnames[:] = []
+            if not include_nested:
+                dirnames[:] = []
     return sorted(projects)
 
 
@@ -420,6 +426,7 @@ def run_scan(
     config_path: Path | None = None,
     workers: int | None = None,
     timeout: int = 90,
+    include_nested: bool = False,
 ) -> dict:
     root = root.expanduser().resolve()
     if not root.exists():
@@ -430,7 +437,7 @@ def run_scan(
     globs = list(config.get("exclude_globs", []))
 
     started = time.time()
-    projects = discover_projects(root, excludes, globs)
+    projects = discover_projects(root, excludes, globs, include_nested=include_nested)
     if not projects:
         projects = [root]
 
@@ -541,6 +548,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             config_path=args.policy or args.config,
             workers=args.workers,
             timeout=args.timeout,
+            include_nested=args.include_nested,
         )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)

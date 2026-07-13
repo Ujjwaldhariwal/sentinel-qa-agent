@@ -48,6 +48,26 @@ Sentinel does not ask an LLM to blindly inspect an entire repository. It first g
 
 Requirements: Python 3.11 or newer.
 
+Windows PowerShell:
+
+```powershell
+git clone <your-repository-url>
+cd sentinel-qa-agent
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .
+```
+
+If PowerShell blocks activation scripts for the current session, run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+macOS or Linux:
+
 ```bash
 git clone <your-repository-url>
 cd sentinel-qa-agent
